@@ -1,0 +1,84 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ab-mirror
+  namespace: actual-budget
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: ab-mirror
+              image: your-registry/ab-mirror:latest
+              args: ["run", "--config", "/config/config.yaml"]
+              env:
+                - name: AB_MIRROR_SERVER_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ab-mirror-secrets
+                      key: server-password
+                # Add per-budget keys as needed:
+                # - name: AB_MIRROR_KEY_NICK_PERSONAL
+                #   valueFrom:
+                #     secretKeyRef:
+                #       name: ab-mirror-secrets
+                #       key: nick-personal-key
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: data
+                  mountPath: /data/ab-mirror
+          volumes:
+            - name: config
+              configMap:
+                name: ab-mirror-config
+            - name: data
+              persistentVolumeClaim:
+                claimName: ab-mirror-data
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ab-mirror-config
+  namespace: actual-budget
+data:
+  config.yaml: |
+    server:
+      url: http://actual-budget:5006
+    dataDir: /data/ab-mirror
+    budgets:
+      nick-personal:
+        syncId: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        encrypted: true
+      britta-personal:
+        syncId: "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
+      joint:
+        syncId: "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
+    pipeline: []
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ab-mirror-secrets
+  namespace: actual-budget
+type: Opaque
+stringData:
+  server-password: "your-server-password"
+  nick-personal-key: "your-encryption-key"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ab-mirror-data
+  namespace: actual-budget
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

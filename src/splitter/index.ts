@@ -1,0 +1,173 @@
+/**
+ * Tag-based transaction splitter: within a single budget, scans transactions
+ * for action hashtags and creates transformed copies in a destination account.
+ *
+ * Flow:
+ *   1. Source selector filters by accounts + requiredTags (scope guard).
+ *   2. Action tags (#50/50, #0/100, etc.) determine the transform.
+ *   3. Only the first matching action tag per transaction is applied.
+ *   4. Existing mirrored copies are updated (date + amount) if changed.
+ */
+import * as actual from "@actual-app/api";
+import { formatImportedId, isABMirrorId, parseImportedId } from "../util/imported-id";
+import { parseTags } from "../util/tags";
+import { selectAccounts, selectTransactions } from "../selector/index";
+import type { SplitStep, TagAction } from "../config/schema";
+import type { BudgetManager } from "../client/budget-manager";
+import type { ActualTransaction, NewTransaction } from "../selector/types";
+
+export interface SplitterOptions {
+  step: SplitStep;
+  budgetId: string;
+  lookbackDays: number;
+  dryRun: boolean;
+}
+
+interface SplitMatch {
+  sourceTx: ActualTransaction;
+  action: TagAction;
+  accountId: string;
+}
+
+export interface SplitDiff {
+  toAdd: Array<{ accountId: string; tx: NewTransaction }>;
+  toUpdate: Array<{ id: string; date: string; amount: number }>;
+}
+
+/**
+ * Pure function: matches source transactions against action tags and
+ * computes what to add or update in the destination account(s).
+ */
+export function computeSplitDiff(
+  sourceTxs: ActualTransaction[],
+  selector: { accounts: import("../config/schema").AccountsSpec; requiredTags?: string[] },
+  tagEntries: Array<[string, TagAction]>,
+  existingBySourceId: Map<string, ActualTransaction>,
+  budgetId: string
+): SplitDiff {
+  const toAdd: SplitDiff["toAdd"] = [];
+  const toUpdate: SplitDiff["toUpdate"] = [];
+
+  for (const tx of selectTransactions(sourceTxs, selector)) {
+    const { tags: txTags } = parseTags(tx.notes);
+
+    // Apply the first matching action tag (config-definition order)
+    for (const [tag, action] of tagEntries) {
+      if (!txTags.includes(tag.toLowerCase())) continue;
+
+      const amount = Math.round(tx.amount * action.multiplier);
+      const importedId = formatImportedId(budgetId, tx.id);
+      const existing = existingBySourceId.get(tx.id);
+
+      if (!existing) {
+        toAdd.push({
+          accountId: action.destination_account,
+          tx: {
+            date: tx.date,
+            amount,
+            payee_name: tx.payee_name ?? undefined,
+            notes: tx.notes ?? undefined,
+            // Same budget so categories are 1:1
+            category: tx.category ?? undefined,
+            cleared: tx.cleared,
+            imported_id: importedId,
+          },
+        });
+      } else if (existing.date !== tx.date || existing.amount !== amount) {
+        toUpdate.push({ id: existing.id, date: tx.date, amount });
+      }
+
+      break; // Only first matching tag applies
+    }
+  }
+
+  return { toAdd, toUpdate };
+}
+
+/** Returns "YYYY-MM-DD" for the date N days ago. */
+function lookbackStart(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+export async function runSplitter(
+  opts: SplitterOptions,
+  manager: BudgetManager
+): Promise<void> {
+  const { step, budgetId, lookbackDays, dryRun } = opts;
+  const startDate = lookbackStart(lookbackDays);
+  const endDate = new Date().toISOString().slice(0, 10);
+
+  // Tags evaluated in config-definition order (Object.entries preserves insertion order)
+  const tagEntries = Object.entries(step.tags) as Array<[string, TagAction]>;
+
+  await manager.open(step.budget);
+
+  const allAccounts = await actual.getAccounts();
+  const selectedAccounts = selectAccounts(
+    allAccounts as import("../selector/types").ActualAccount[],
+    step.source.accounts
+  );
+
+  const sourceTxFlat: ActualTransaction[] = [];
+  for (const acct of selectedAccounts) {
+    const txs = await actual.getTransactions(acct.id, startDate, endDate);
+    sourceTxFlat.push(...(txs as ActualTransaction[]));
+  }
+
+  // Collect all unique destination account IDs referenced by the tag config
+  const destAccountIds = new Set(
+    tagEntries.map(([, action]) => action.destination_account)
+  );
+
+  // Read existing mirrored transactions from all destination accounts
+  const existingBySourceId = new Map<string, ActualTransaction>();
+  for (const destId of destAccountIds) {
+    const destTxs = (await actual.getTransactions(
+      destId,
+      startDate,
+      endDate
+    )) as ActualTransaction[];
+    for (const tx of destTxs) {
+      if (!isABMirrorId(tx.imported_id)) continue;
+      const parsed = parseImportedId(tx.imported_id as string);
+      if (parsed?.budgetId === budgetId) {
+        existingBySourceId.set(parsed.txId, tx);
+      }
+    }
+  }
+
+  const selector = {
+    accounts: step.source.accounts,
+    requiredTags: step.source.requiredTags,
+  };
+
+  const diff = computeSplitDiff(
+    sourceTxFlat,
+    selector,
+    tagEntries,
+    existingBySourceId,
+    budgetId
+  );
+
+  if (dryRun) {
+    console.log(
+      `  [dry-run] would add=${diff.toAdd.length} update=${diff.toUpdate.length}`
+    );
+    return;
+  }
+
+  for (const { accountId, tx } of diff.toAdd) {
+    await actual.addTransactions(accountId, [tx]);
+  }
+  for (const { id, date, amount } of diff.toUpdate) {
+    await actual.updateTransaction(id, { date, amount });
+  }
+
+  if (diff.toAdd.length > 0 || diff.toUpdate.length > 0) {
+    manager.markDirty(step.budget);
+  }
+
+  console.log(`  added=${diff.toAdd.length} updated=${diff.toUpdate.length}`);
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.cache/
+tmp/
+temp/
+.DS_Store
+Thumbs.db
