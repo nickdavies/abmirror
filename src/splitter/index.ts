@@ -165,9 +165,5 @@ export async function runSplitter(
     await actual.updateTransaction(id, { date, amount });
   }
 
-  if (diff.toAdd.length > 0 || diff.toUpdate.length > 0) {
-    manager.markDirty(step.budget);
-  }
-
   console.log(`  added=${diff.toAdd.length} updated=${diff.toUpdate.length}`);
 }

@@ -45,14 +45,9 @@ export const MirrorStepSchema = z.object({
   categoryMapping: z.record(z.string(), z.string()).optional(),
 });
 
-export const SyncStepSchema = z.object({
-  type: z.literal("sync"),
-});
-
 export const PipelineStepSchema = z.discriminatedUnion("type", [
   SplitStepSchema,
   MirrorStepSchema,
-  SyncStepSchema,
 ]);
 
 export const ConfigSchema = z.object({
@@ -75,6 +70,5 @@ export type Config = z.infer<typeof ConfigSchema>;
 export type PipelineStep = z.infer<typeof PipelineStepSchema>;
 export type SplitStep = z.infer<typeof SplitStepSchema>;
 export type MirrorStep = z.infer<typeof MirrorStepSchema>;
-export type SyncStep = z.infer<typeof SyncStepSchema>;
 export type AccountsSpec = z.infer<typeof AccountsSpecSchema>;
 export type TagAction = z.infer<typeof TagActionSchema>;

@@ -21,7 +21,6 @@ export class BudgetManager {
   private readonly config: Config;
   private readonly infos = new Map<string, BudgetInfo>();
   private openAlias: string | null = null;
-  private readonly dirty = new Set<string>();
 
   constructor(config: Config) {
     this.config = config;
@@ -45,9 +44,7 @@ export class BudgetManager {
       return this.getInfo(alias);
     }
     if (this.openAlias !== null) {
-      // Sync before switching so changes aren't lost
       await actual.sync();
-      this.dirty.delete(this.openAlias);
     }
     return this.download(alias);
   }
@@ -99,34 +96,22 @@ export class BudgetManager {
     return info;
   }
 
-  /** Call after writing transactions to a budget so syncAll knows to include it. */
-  markDirty(alias: string): void {
-    this.dirty.add(alias);
-  }
-
   getOpenAlias(): string | null {
     return this.openAlias;
   }
 
   /**
-   * Syncs all dirty budgets to the server. The currently open budget is synced
-   * first; remaining dirty budgets are opened, synced, then left open (the last
-   * one becomes the active budget). After this call dirty set is empty.
+   * Syncs the currently open budget to the server. Other budgets are
+   * already synced on switch via open(), so this only needs to flush
+   * whatever is active right now.
    */
   async syncAll(): Promise<void> {
-    if (this.openAlias && this.dirty.has(this.openAlias)) {
+    if (this.openAlias) {
       await actual.sync();
-      this.dirty.delete(this.openAlias);
-    }
-
-    for (const alias of [...this.dirty]) {
-      await this.download(alias); // switches to this budget (syncs from server)
-      await actual.sync(); // push our local writes
-      this.dirty.delete(alias);
     }
   }
 
-  /** Syncs all dirty budgets then shuts down the API. */
+  /** Syncs all budgets then shuts down the API. */
   async shutdown(): Promise<void> {
     await this.syncAll();
     await actual.shutdown();

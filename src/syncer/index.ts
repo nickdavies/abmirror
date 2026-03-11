@@ -164,10 +164,6 @@ export async function runSyncer(
     await actual.deleteTransaction(id);
   }
 
-  if (diff.toAdd.length > 0 || diff.toUpdate.length > 0 || diff.toDelete.length > 0) {
-    manager.markDirty(step.destination.budget);
-  }
-
   console.log(
     `  added=${diff.toAdd.length} updated=${diff.toUpdate.length} deleted=${diff.toDelete.length}`
   );

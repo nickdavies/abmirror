@@ -396,7 +396,6 @@ async function bootstrap(): Promise<Fixture> {
           },
         },
       },
-      { type: "sync" },
       {
         type: "mirror",
         source: { budget: "alpha", accounts: [budgets.alpha.accountIds.Recv] },
@@ -415,7 +414,6 @@ async function bootstrap(): Promise<Fixture> {
         destination: { budget: "beta", account: budgets.beta.accountIds.Recv },
         copyMirrored: true,
       },
-      { type: "sync" },
       {
         type: "mirror",
         source: { budget: "alpha", accounts: [budgets.alpha.accountIds.Recv] },

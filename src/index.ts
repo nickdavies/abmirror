@@ -1,6 +1,6 @@
 /** Public library API for programmatic use. */
 export { loadConfig } from "./config/loader";
-export type { Config, PipelineStep, SplitStep, MirrorStep, SyncStep } from "./config/schema";
+export type { Config, PipelineStep, SplitStep, MirrorStep } from "./config/schema";
 
 export { BudgetManager } from "./client/budget-manager";
 export type { BudgetInfo } from "./client/budget-manager";

@@ -1,7 +1,7 @@
 /**
  * Pipeline orchestrator: runs preflight validation then executes steps in order.
- * Manages the budget open/close lifecycle -- consecutive steps on the same
- * budget stay open, cross-budget switches sync before switching.
+ * Budget syncing happens automatically on every budget switch (via
+ * BudgetManager.open) and at the end of the pipeline.
  */
 import type { Config } from "../config/schema";
 import { BudgetManager } from "../client/budget-manager";
@@ -44,12 +44,6 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
       const step = steps[i]!;
       const displayIndex = stepIndex ?? i;
       console.log(`\nStep ${displayIndex + 1}: ${step.type}`);
-
-      if (step.type === "sync") {
-        console.log("  Syncing all modified budgets...");
-        await manager.syncAll();
-        continue;
-      }
 
       if (step.type === "split") {
         const budgetInfo = manager.getInfo(step.budget);
