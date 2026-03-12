@@ -2,8 +2,9 @@
  * Preflight validation: runs before any pipeline step executes.
  *
  * Downloads all referenced budgets, then validates:
+ *  - No duplicate account names in any budget (fail fast with actionable dump)
  *  - All budget aliases in pipeline exist in config
- *  - All account IDs (source and destination) exist in their budgets
+ *  - All account IDs/names (source and destination) exist in their budgets
  *  - All category IDs in category mappings exist
  *  - Same-budget mirror steps don't have overlapping source/dest accounts
  *  - Tag strings start with #
@@ -15,6 +16,12 @@ import type { Config, MirrorStep, SplitStep } from "../config/schema";
 import { selectAccounts } from "../selector/index";
 import type { BudgetManager } from "../client/budget-manager";
 import type { ActualAccount, ActualCategory } from "../selector/types";
+import {
+  checkDuplicateNames,
+  formatDuplicateErrorForUser,
+  resolveAccountsSpec,
+  resolveAccountId,
+} from "../util/account-resolver";
 
 export interface PreflightResult {
   ok: boolean;
@@ -77,6 +84,16 @@ export async function runPreflight(
     return { ok: false, errors };
   }
 
+  // --- Step 2b: Check for duplicate account names (fail fast with actionable dump) ---
+  for (const alias of referencedAliases) {
+    const accounts = await getAccountsForBudget(alias, manager);
+    const dup = checkDuplicateNames(accounts, alias);
+    if (dup) {
+      errors.push(formatDuplicateErrorForUser(dup));
+      return { ok: false, errors };
+    }
+  }
+
   // --- Step 3: Validate each step's accounts and category mappings ---
   for (let i = 0; i < config.pipeline.length; i++) {
     const step = config.pipeline[i]!;
@@ -136,28 +153,27 @@ async function validateSplitStep(
   errors: string[]
 ): Promise<void> {
   const accounts = await getAccountsForBudget(step.budget, manager);
-  const accountIds = new Set(accounts.map((a) => a.id));
+
+  // Resolve source accounts (names -> IDs)
+  const srcResult = resolveAccountsSpec(
+    accounts,
+    step.source.accounts,
+    step.budget
+  );
+  if (!srcResult.ok) {
+    errors.push(`${label}: ${srcResult.error}`);
+    return;
+  }
 
   // Validate destination accounts referenced in tag actions
   for (const [tag, action] of Object.entries(step.tags)) {
-    if (!accountIds.has(action.destination_account)) {
-      errors.push(
-        `${label}: tag "${tag}" destination_account "${action.destination_account}" not found in budget "${step.budget}"`
-      );
-    }
-  }
-
-  // Validate source account IDs if explicit list
-  const spec = step.source.accounts;
-  if (Array.isArray(spec)) {
-    for (const id of spec) {
-      if (!accountIds.has(id)) {
-        errors.push(`${label}: source account "${id}" not found in budget "${step.budget}"`);
-      }
-    }
-  } else if (typeof spec === "string" && spec !== "all" && spec !== "on-budget" && spec !== "off-budget") {
-    if (!accountIds.has(spec)) {
-      errors.push(`${label}: source account "${spec}" not found in budget "${step.budget}"`);
+    const destResult = resolveAccountId(
+      accounts,
+      action.destination_account,
+      step.budget
+    );
+    if (!destResult.ok) {
+      errors.push(`${label}: tag "${tag}" ${destResult.error}`);
     }
   }
 }
@@ -171,40 +187,41 @@ async function validateMirrorStep(
   const sourceAlias = step.source.budget;
   const destAlias = step.destination.budget;
 
-  // Validate source accounts
   const sourceAccounts = await getAccountsForBudget(sourceAlias, manager);
-  const sourceAccountIds = new Set(sourceAccounts.map((a) => a.id));
+  const destAccounts = await getAccountsForBudget(destAlias, manager);
 
-  const spec = step.source.accounts;
-  if (Array.isArray(spec)) {
-    for (const id of spec) {
-      if (!sourceAccountIds.has(id)) {
-        errors.push(`${label}: source account "${id}" not found in budget "${sourceAlias}"`);
-      }
-    }
-  } else if (typeof spec === "string" && spec !== "all" && spec !== "on-budget" && spec !== "off-budget") {
-    if (!sourceAccountIds.has(spec)) {
-      errors.push(`${label}: source account "${spec}" not found in budget "${sourceAlias}"`);
-    }
+  // Resolve source accounts (names -> IDs)
+  const srcResult = resolveAccountsSpec(
+    sourceAccounts,
+    step.source.accounts,
+    sourceAlias
+  );
+  if (!srcResult.ok) {
+    errors.push(`${label}: ${srcResult.error}`);
+    return;
   }
 
-  // Validate destination account
-  const destAccounts = await getAccountsForBudget(destAlias, manager);
-  const destAccountIds = new Set(destAccounts.map((a) => a.id));
-
-  if (!destAccountIds.has(step.destination.account)) {
-    errors.push(
-      `${label}: destination account "${step.destination.account}" not found in budget "${destAlias}"`
-    );
+  // Resolve destination account
+  const destResult = resolveAccountId(
+    destAccounts,
+    step.destination.account,
+    destAlias
+  );
+  if (!destResult.ok) {
+    errors.push(`${label}: ${destResult.error}`);
+    return;
   }
 
   // Same-budget: source accounts and destination must not overlap
   if (sourceAlias === destAlias) {
-    const selectedSrcAccounts = selectAccounts(sourceAccounts, step.source.accounts);
+    const selectedSrcAccounts = selectAccounts(
+      sourceAccounts,
+      srcResult.spec!
+    );
     const selectedSrcIds = new Set(selectedSrcAccounts.map((a) => a.id));
-    if (selectedSrcIds.has(step.destination.account)) {
+    if (selectedSrcIds.has(destResult.id)) {
       errors.push(
-        `${label}: same-budget mirror where source accounts include destination account "${step.destination.account}" -- they must be distinct`
+        `${label}: same-budget mirror where source accounts include destination account -- they must be distinct`
       );
     }
   }

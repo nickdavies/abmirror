@@ -6,6 +6,7 @@
 import * as actual from "@actual-app/api";
 import { formatImportedId, isABMirrorId, parseImportedId } from "../util/imported-id";
 import { selectAccounts, selectTransactions } from "../selector/index";
+import { resolveAccountsSpec, resolveAccountId } from "../util/account-resolver";
 import type { MirrorStep } from "../config/schema";
 import type { BudgetManager } from "../client/budget-manager";
 import type { ActualTransaction, NewTransaction } from "../selector/types";
@@ -93,11 +94,17 @@ export async function runSyncer(
   // --- Phase 1: Read source transactions ---
   await manager.open(step.source.budget);
 
-  const allSourceAccounts = await actual.getAccounts();
-  const selectedAccounts = selectAccounts(
-    allSourceAccounts as import("../selector/types").ActualAccount[],
-    step.source.accounts
+  const allSourceAccounts = (await actual.getAccounts()) as import("../selector/types").ActualAccount[];
+  const srcResolved = resolveAccountsSpec(
+    allSourceAccounts,
+    step.source.accounts,
+    step.source.budget
   );
+  if (!srcResolved.ok) {
+    throw new Error(srcResolved.error);
+  }
+
+  const selectedAccounts = selectAccounts(allSourceAccounts, srcResolved.spec!);
 
   const selector = {
     accounts: step.source.accounts,
@@ -121,7 +128,16 @@ export async function runSyncer(
   // Opening the destination budget closes source (if different)
   await manager.open(step.destination.budget);
 
-  const destAccount = step.destination.account;
+  const destAccounts = (await actual.getAccounts()) as import("../selector/types").ActualAccount[];
+  const destResolved = resolveAccountId(
+    destAccounts,
+    step.destination.account,
+    step.destination.budget
+  );
+  if (!destResolved.ok) {
+    throw new Error(destResolved.error);
+  }
+  const destAccount = destResolved.id;
   const destTxs = (await actual.getTransactions(
     destAccount,
     startDate,

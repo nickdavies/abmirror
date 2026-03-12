@@ -1,0 +1,66 @@
+/**
+ * list-accounts: Dump account names to IDs for config discovery.
+ * Shows all accounts with enough info to pick the right ID when names are ambiguous.
+ */
+import * as actual from "@actual-app/api";
+import type { Config } from "../config/schema";
+import type { BudgetManager } from "../client/budget-manager";
+import type { ActualAccount } from "../selector/types";
+import { checkDuplicateNames } from "../util/account-resolver";
+
+type AccountWithBalance = ActualAccount & { balance_current?: number | null };
+
+export interface ListAccountsOptions {
+  config: Config;
+  manager: BudgetManager;
+  /** If set, only list this budget. Otherwise list all budgets in config. */
+  budgetAlias?: string;
+}
+
+function formatBalance(bal: number | null | undefined): string {
+  if (bal == null) return "";
+  return `  balance: ${bal}`;
+}
+
+export async function runListAccounts(opts: ListAccountsOptions): Promise<void> {
+  const { config, manager, budgetAlias } = opts;
+
+  const aliases = budgetAlias
+    ? [budgetAlias]
+    : Object.keys(config.budgets);
+
+  for (const alias of aliases) {
+    if (!config.budgets[alias]) {
+      console.error(`Unknown budget alias: "${alias}"`);
+      process.exit(1);
+    }
+
+    await manager.download(alias);
+    const accounts = (await actual.getAccounts()) as AccountWithBalance[];
+
+    const dup = checkDuplicateNames(accounts, alias);
+    if (dup) {
+      console.log(`\nBudget: ${alias}`);
+      console.log("  (duplicate account names - use IDs in config to disambiguate)");
+      console.log("---");
+    } else {
+      console.log(`\nBudget: ${alias}`);
+      console.log("---");
+    }
+
+    const byName = new Map<string, AccountWithBalance[]>();
+    for (const a of accounts) {
+      const list = byName.get(a.name) ?? [];
+      list.push(a);
+      byName.set(a.name, list);
+    }
+
+    for (const a of accounts) {
+      const typeLabel = a.offbudget ? "off-budget" : "on-budget";
+      const statusLabel = a.closed ? "closed" : "open";
+      const dupNote = (byName.get(a.name)?.length ?? 0) > 1 ? "  (duplicate name)" : "";
+      const bal = formatBalance(a.balance_current);
+      console.log(`  ${a.name}\t${a.id}\t${typeLabel}\t${statusLabel}${bal}${dupNote}`);
+    }
+  }
+}

@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 /**
- * CLI entry point. Two commands:
+ * CLI entry point. Commands:
  *   ab-mirror validate --config <path>
  *   ab-mirror run --config <path> [--dry-run] [--step <n>]
+ *   ab-mirror list-accounts --config <path> [--budget <alias>]
  */
 import { Command } from "commander";
 import { loadConfig } from "./config/loader";
 import { runPipeline, validateConfig } from "./orchestrator/index";
+import { runListAccounts } from "./commands/list-accounts";
+import { BudgetManager } from "./client/budget-manager";
 
 const program = new Command();
 
@@ -24,6 +27,28 @@ program
   .action(async (opts: { config: string }) => {
     const config = loadConfig(opts.config);
     await validateConfig(config);
+  });
+
+program
+  .command("list-accounts")
+  .description(
+    "List account names and IDs for each budget. Shows type (on/off-budget), status (open/closed), and balance to help pick the right ID when names are ambiguous."
+  )
+  .requiredOption("--config <path>", "Path to YAML config file")
+  .option("--budget <alias>", "Only list accounts for this budget alias")
+  .action(async (opts: { config: string; budget?: string }) => {
+    const config = loadConfig(opts.config);
+    const manager = new BudgetManager(config);
+    await manager.init();
+    try {
+      await runListAccounts({
+        config,
+        manager,
+        budgetAlias: opts.budget,
+      });
+    } finally {
+      await manager.shutdown();
+    }
   });
 
 program

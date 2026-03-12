@@ -12,6 +12,7 @@ import * as actual from "@actual-app/api";
 import { formatImportedId, isABMirrorId, parseImportedId } from "../util/imported-id";
 import { parseTags } from "../util/tags";
 import { selectAccounts, selectTransactions } from "../selector/index";
+import { resolveAccountsSpec, resolveAccountId } from "../util/account-resolver";
 import type { SplitStep, TagAction } from "../config/schema";
 import type { BudgetManager } from "../client/budget-manager";
 import type { ActualTransaction, NewTransaction } from "../selector/types";
@@ -104,11 +105,31 @@ export async function runSplitter(
 
   await manager.open(step.budget);
 
-  const allAccounts = await actual.getAccounts();
-  const selectedAccounts = selectAccounts(
-    allAccounts as import("../selector/types").ActualAccount[],
-    step.source.accounts
+  const allAccounts = (await actual.getAccounts()) as import("../selector/types").ActualAccount[];
+  const srcResolved = resolveAccountsSpec(
+    allAccounts,
+    step.source.accounts,
+    step.budget
   );
+  if (!srcResolved.ok) {
+    throw new Error(srcResolved.error);
+  }
+
+  // Resolve each tag's destination_account (name -> ID)
+  const resolvedTagEntries: Array<[string, TagAction & { destination_account: string }]> = [];
+  for (const [tag, action] of tagEntries) {
+    const destResolved = resolveAccountId(
+      allAccounts,
+      action.destination_account,
+      step.budget
+    );
+    if (!destResolved.ok) {
+      throw new Error(`tag "${tag}": ${destResolved.error}`);
+    }
+    resolvedTagEntries.push([tag, { ...action, destination_account: destResolved.id }]);
+  }
+
+  const selectedAccounts = selectAccounts(allAccounts, srcResolved.spec!);
 
   const sourceTxFlat: ActualTransaction[] = [];
   for (const acct of selectedAccounts) {
@@ -118,7 +139,7 @@ export async function runSplitter(
 
   // Collect all unique destination account IDs referenced by the tag config
   const destAccountIds = new Set(
-    tagEntries.map(([, action]) => action.destination_account)
+    resolvedTagEntries.map(([, action]) => action.destination_account)
   );
 
   // Read existing mirrored transactions from all destination accounts
@@ -146,7 +167,7 @@ export async function runSplitter(
   const diff = computeSplitDiff(
     sourceTxFlat,
     selector,
-    tagEntries,
+    resolvedTagEntries,
     existingBySourceId,
     budgetId
   );

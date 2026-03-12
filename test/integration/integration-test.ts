@@ -1,12 +1,12 @@
 import * as actual from "@actual-app/api";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { stringify } from "yaml";
 
-type BudgetAlias = "alpha" | "beta" | "gamma";
-type AccountName = "Checking" | "Recv" | "DeleteDest";
+type BudgetAlias = "alpha" | "beta" | "gamma" | "delta";
+type AccountName = "Checking" | "Recv" | "DeleteDest" | "Dup1" | "Dup2";
 
 type BudgetFixture = {
   name: BudgetAlias;
@@ -232,6 +232,22 @@ function runMirrorBinary(fixture: Fixture): void {
   });
 }
 
+function runValidate(configPath: string, fixture: Fixture): { exitCode: number; stderr: string } {
+  const result = spawnSync("node", ["dist/cli.js", "validate", "--config", configPath], {
+    cwd: fixture.rootDir,
+    encoding: "utf-8",
+    env: {
+      ...process.env,
+      AB_MIRROR_KEY_GAMMA: fixture.gammaPassword,
+      AB_MIRROR_SERVER_PASSWORD: fixture.serverPassword,
+    },
+  });
+  return {
+    exitCode: result.status ?? (result.signal ? 1 : 0),
+    stderr: result.stderr ?? "",
+  };
+}
+
 async function bootstrap(): Promise<Fixture> {
   const repoRoot = rootDir();
   const assertDataDir = makeTempDir("abm-it-assert-");
@@ -244,6 +260,7 @@ async function bootstrap(): Promise<Fixture> {
     alpha: { name: "alpha", syncId: "", encrypted: false, accountIds: {} },
     beta: { name: "beta", syncId: "", encrypted: false, accountIds: {} },
     gamma: { name: "gamma", syncId: "", encrypted: true, accountIds: {} },
+    delta: { name: "delta", syncId: "", encrypted: false, accountIds: {} },
   };
 
   await withApi(bootstrapDataDir, async () => {
@@ -345,6 +362,14 @@ async function bootstrap(): Promise<Fixture> {
     await actual.internal.send("key-make", { password: GAMMA_KEY });
     await actual.sync();
     budgets.gamma.syncId = await getSyncIdByBudgetName("gamma");
+
+    await actual.runImport("delta", async () => {
+      const dup1 = await actual.createAccount({ name: "Dup", offbudget: false }, 0);
+      const dup2 = await actual.createAccount({ name: "Dup", offbudget: true }, 0);
+      budgets.delta.accountIds.Dup1 = dup1;
+      budgets.delta.accountIds.Dup2 = dup2;
+    });
+    budgets.delta.syncId = await getSyncIdByBudgetName("delta");
   });
 
   const fixture: Fixture = {
@@ -715,6 +740,81 @@ async function main(): Promise<void> {
     sourceAfterCoffeeDelete,
     "source integrity after run 4"
   );
+
+  console.log("Testing duplicate account name failure (actionable dump)...");
+  const dupConfigPath = path.join(path.dirname(fixture.configPath), ".tmp-dup-config.yaml");
+  const dupConfig = {
+    server: { url: SERVER_URL },
+    dataDir: fixture.binaryDataDir,
+    budgets: {
+      delta: { syncId: fixture.budgets.delta.syncId, encrypted: false },
+    },
+    lookbackDays: 3650,
+    pipeline: [
+      {
+        type: "split",
+        budget: "delta",
+        source: { accounts: "all", requiredTags: [] },
+        tags: {
+          "#x": {
+            multiplier: 1,
+            destination_account: fixture.budgets.delta.accountIds.Dup1,
+          },
+        },
+      },
+    ],
+  };
+  writeFileSync(dupConfigPath, stringify(dupConfig), "utf-8");
+  const dupResult = runValidate(dupConfigPath, fixture);
+  assert(dupResult.exitCode !== 0, "validate should fail when budget has duplicate account names");
+  assert(
+    dupResult.stderr.includes('Duplicate account name "Dup"'),
+    "stderr should include duplicate name message"
+  );
+  assert(
+    dupResult.stderr.includes("id:") && dupResult.stderr.includes("on-budget") && dupResult.stderr.includes("off-budget"),
+    "stderr should include actionable dump with ids and basic info"
+  );
+
+  console.log("Testing account name resolution in config...");
+  const nameConfigPath = path.join(path.dirname(fixture.configPath), ".tmp-name-config.yaml");
+  const nameConfig = {
+    server: { url: SERVER_URL },
+    dataDir: fixture.binaryDataDir,
+    budgets: {
+      alpha: { syncId: fixture.budgets.alpha.syncId, encrypted: false },
+      beta: { syncId: fixture.budgets.beta.syncId, encrypted: false },
+    },
+    lookbackDays: 3650,
+    pipeline: [
+      {
+        type: "split",
+        budget: "alpha",
+        source: {
+          accounts: ["Checking"],
+          requiredTags: ["#test", "#sync"],
+        },
+        tags: {
+          "#50/50": {
+            multiplier: -0.5,
+            destination_account: "Recv",
+          },
+        },
+      },
+    ],
+  };
+  writeFileSync(nameConfigPath, stringify(nameConfig), "utf-8");
+  const nameValidateResult = runValidate(nameConfigPath, fixture);
+  assert(nameValidateResult.exitCode === 0, "validate should pass with account names in config");
+  execSync(`node dist/cli.js run --config "${nameConfigPath}"`, {
+    cwd: fixture.rootDir,
+    stdio: "pipe",
+    env: {
+      ...process.env,
+      AB_MIRROR_KEY_GAMMA: fixture.gammaPassword,
+      AB_MIRROR_SERVER_PASSWORD: fixture.serverPassword,
+    },
+  });
 
   console.log("Blackbox integration test passed.");
 }
