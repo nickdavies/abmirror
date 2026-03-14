@@ -227,7 +227,6 @@ function runMirrorBinary(fixture: Fixture): void {
     env: {
       ...process.env,
       AB_MIRROR_KEY_GAMMA: fixture.gammaPassword,
-      AB_MIRROR_SERVER_PASSWORD: fixture.serverPassword,
     },
   });
 }
@@ -383,12 +382,16 @@ async function bootstrap(): Promise<Fixture> {
   };
 
   const config = {
-    server: { url: SERVER_URL },
+    server: { url: SERVER_URL, password: SERVER_PASSWORD },
     dataDir: fixture.binaryDataDir,
     budgets: {
       alpha: { syncId: budgets.alpha.syncId, encrypted: false },
       beta: { syncId: budgets.beta.syncId, encrypted: false },
-      gamma: { syncId: budgets.gamma.syncId, encrypted: true },
+      gamma: {
+        syncId: budgets.gamma.syncId,
+        encrypted: true,
+        key: "${AB_MIRROR_KEY_GAMMA}",
+      },
     },
     lookbackDays: 3650,
     pipeline: [

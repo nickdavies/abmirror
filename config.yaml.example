@@ -1,0 +1,38 @@
+# ab-mirror config template. Copy to config.yaml and fill in values.
+# Secrets use ${VAR} substitution — set the env vars before running.
+# Any ${VAR} in the file must be set and non-empty, or the tool throws.
+
+server:
+  url: "http://localhost:5006"   # or your Actual server URL
+  password: "${AB_MIRROR_SERVER_PASSWORD}"
+
+dataDir: "/tmp/ab-mirror-data"   # local dir for budget cache
+
+budgets:
+  main: { syncId: "<your-budget-sync-id>", encrypted: false }
+  shared: { syncId: "<other-sync-id>", encrypted: true, key: "${AB_MIRROR_KEY_SHARED}" }
+
+lookbackDays: 60
+
+# Optional: push notifications via Pushover (for cron runs)
+notify:
+  onSuccess: false    # only notify on failure or warnings (default)
+  pushover:
+    user: "${AB_MIRROR_PUSHOVER_USER}"
+    token: "${AB_MIRROR_PUSHOVER_TOKEN}"
+
+pipeline:
+  - type: split
+    budget: main
+    source:
+      accounts: "all"             # or "on-budget", "off-budget", or account IDs
+      requiredTags: ["#sync"]
+    tags:
+      "#50/50":
+        multiplier: -0.5
+        destination_account: "<account-id>"
+
+  - type: mirror
+    source: { budget: main, accounts: ["<account-id>"] }
+    destination: { budget: shared, account: "<account-id>" }
+    copyMirrored: true

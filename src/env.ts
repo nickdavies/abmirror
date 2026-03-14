@@ -20,21 +20,25 @@ export function envKeyForBudget(alias: string): string {
 }
 
 /**
- * Loads secrets from process.env and validates that all encrypted budgets have
- * their keys set. Throws before any download if validation fails.
+ * Loads secrets from config (after substitution) and env. Config values take
+ * precedence when present. Validates that all encrypted budgets have keys set.
+ * Throws before any download if validation fails.
  */
 export function loadSecrets(config: Config): Secrets {
-  const serverPassword = process.env["AB_MIRROR_SERVER_PASSWORD"] ?? "";
+  const serverPassword =
+    config.server.password ?? process.env["AB_MIRROR_SERVER_PASSWORD"] ?? "";
+
   const budgetKeys: Record<string, string> = {};
 
   for (const [alias, budgetConfig] of Object.entries(config.budgets)) {
     if (!budgetConfig.encrypted) continue;
 
-    const envVar = envKeyForBudget(alias);
-    const value = process.env[envVar];
+    const value =
+      budgetConfig.key ?? process.env[envKeyForBudget(alias)];
     if (value === undefined || value === "") {
+      const envVar = envKeyForBudget(alias);
       throw new Error(
-        `Budget "${alias}" is encrypted but ${envVar} is not set. Set this env var before running.`
+        `Budget "${alias}" is encrypted but has no key in config and ${envVar} is not set. Set key in config (e.g. key: "\${${envVar}}") or set the env var.`
       );
     }
     budgetKeys[alias] = value;

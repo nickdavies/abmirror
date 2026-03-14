@@ -1,6 +1,6 @@
 /**
- * YAML config schema. Secrets (server password, budget encryption keys) are
- * never stored here -- they come from env vars at runtime.
+ * YAML config schema. Secrets can be provided via ${VAR} substitution in the
+ * config file (server.password, budgets[].key, notify.pushover) or via env vars.
  */
 import { z } from "zod";
 
@@ -68,6 +68,12 @@ const NotifySchema = z
 export const ConfigSchema = z.object({
   server: z.object({
     url: z.string().url(),
+    password: z
+      .string()
+      .optional()
+      .refine((v) => v === undefined || v.length > 0, {
+        message: "server.password when present must be non-empty",
+      }),
   }),
   dataDir: z.string().min(1),
   budgets: z.record(
@@ -75,6 +81,7 @@ export const ConfigSchema = z.object({
     z.object({
       syncId: z.string().min(1),
       encrypted: z.boolean().default(false),
+      key: z.string().min(1).optional(),
     })
   ),
   pipeline: z.array(PipelineStepSchema).default([]),

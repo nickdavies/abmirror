@@ -58,15 +58,41 @@ describe("loadSecrets", () => {
 
   it("throws when encrypted budget has no key set", () => {
     expect(() => loadSecrets(baseConfig)).toThrow(
-      'Budget "nick-personal" is encrypted but AB_MIRROR_KEY_NICK_PERSONAL is not set'
+      "AB_MIRROR_KEY_NICK_PERSONAL is not set"
     );
   });
 
   it("throws when encrypted budget has empty key", () => {
     process.env[AB_MIRROR_KEY_NICK_PERSONAL] = "";
     expect(() => loadSecrets(baseConfig)).toThrow(
-      'Budget "nick-personal" is encrypted but AB_MIRROR_KEY_NICK_PERSONAL is not set'
+      "AB_MIRROR_KEY_NICK_PERSONAL is not set"
     );
+  });
+
+  it("uses serverPassword from config when set", () => {
+    process.env[AB_MIRROR_KEY_NICK_PERSONAL] = "key123";
+    const configWithPassword: Config = {
+      ...baseConfig,
+      server: { url: "http://localhost:5006", password: "config-password" },
+    };
+    const secrets = loadSecrets(configWithPassword);
+    expect(secrets.serverPassword).toBe("config-password");
+  });
+
+  it("uses budget key from config when set", () => {
+    const configWithKey: Config = {
+      ...baseConfig,
+      budgets: {
+        ...baseConfig.budgets,
+        "nick-personal": {
+          syncId: "sync-2",
+          encrypted: true,
+          key: "config-budget-key",
+        },
+      },
+    };
+    const secrets = loadSecrets(configWithKey);
+    expect(secrets.budgetKeys["nick-personal"]).toBe("config-budget-key");
   });
 
   it("succeeds when no budgets are encrypted", () => {
