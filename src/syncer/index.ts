@@ -16,6 +16,8 @@ export interface SyncerOptions {
   sourceBudgetId: string;
   lookbackDays: number;
   dryRun: boolean;
+  /** Optional reporter for step results. */
+  reporter?: import("../notify/reporter").RunReporter;
 }
 
 export interface SyncDiff {
@@ -87,7 +89,7 @@ export async function runSyncer(
   opts: SyncerOptions,
   manager: BudgetManager
 ): Promise<void> {
-  const { step, sourceBudgetId, lookbackDays, dryRun } = opts;
+  const { step, sourceBudgetId, lookbackDays, dryRun, reporter } = opts;
   const startDate = lookbackStart(lookbackDays);
   const endDate = new Date().toISOString().slice(0, 10);
 
@@ -162,6 +164,15 @@ export async function runSyncer(
     sourceBudgetId,
     step
   );
+
+  if (reporter) {
+    reporter.recordStep({
+      type: "mirror",
+      added: diff.toAdd.length,
+      updated: diff.toUpdate.length,
+      deleted: diff.toDelete.length,
+    });
+  }
 
   if (dryRun) {
     console.log(

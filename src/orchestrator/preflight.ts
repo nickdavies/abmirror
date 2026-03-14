@@ -22,6 +22,7 @@ import {
   resolveAccountsSpec,
   resolveAccountId,
 } from "../util/account-resolver";
+import type { RunReporter } from "../notify/reporter";
 
 export interface PreflightResult {
   ok: boolean;
@@ -30,7 +31,8 @@ export interface PreflightResult {
 
 export async function runPreflight(
   config: Config,
-  manager: BudgetManager
+  manager: BudgetManager,
+  reporter?: RunReporter
 ): Promise<PreflightResult> {
   const errors: string[] = [];
 
@@ -100,9 +102,9 @@ export async function runPreflight(
     const label = `step[${i}] (${step.type})`;
 
     if (step.type === "split") {
-      await validateSplitStep(step, label, manager, errors);
+      await validateSplitStep(step, label, manager, errors, i, reporter);
     } else if (step.type === "mirror") {
-      await validateMirrorStep(step, label, manager, errors);
+      await validateMirrorStep(step, label, manager, errors, i, reporter);
     }
   }
 
@@ -171,7 +173,9 @@ async function validateSplitStep(
   step: SplitStep,
   label: string,
   manager: BudgetManager,
-  errors: string[]
+  errors: string[],
+  stepIndex: number,
+  reporter?: RunReporter
 ): Promise<void> {
   const accounts = await getAccountsForBudget(step.budget, manager);
 
@@ -186,6 +190,25 @@ async function validateSplitStep(
     return;
   }
 
+  const selectedSourceAccounts = selectAccounts(accounts, srcResult.spec!);
+  if (reporter && selectedSourceAccounts.length === 0) {
+    reporter.warn("preflight.emptySourceScope", {
+      stepIndex,
+      stepType: "split",
+      spec: step.source.accounts,
+    });
+  }
+  for (const a of selectedSourceAccounts) {
+    if (a.closed && reporter) {
+      reporter.warn("preflight.closedAccountInScope", {
+        stepIndex,
+        budget: step.budget,
+        accountName: a.name,
+        accountId: a.id,
+      });
+    }
+  }
+
   // Validate destination accounts referenced in tag actions
   const destIds = new Set<string>();
   for (const [tag, action] of Object.entries(step.tags)) {
@@ -198,11 +221,20 @@ async function validateSplitStep(
       errors.push(`${label}: tag "${tag}" ${destResult.error}`);
     } else {
       destIds.add(destResult.id);
+      const destAccount = accounts.find((x) => x.id === destResult.id);
+      if (destAccount?.closed && reporter) {
+        reporter.warn("preflight.closedAccountInScope", {
+          stepIndex,
+          budget: step.budget,
+          accountName: destAccount.name,
+          accountId: destAccount.id,
+        });
+      }
     }
   }
 
   // Split source and destination must not overlap
-  const sourceIds = getSourceAccountIds(accounts, srcResult.spec!);
+  const sourceIds = new Set(selectedSourceAccounts.map((a) => a.id));
   if (hasSourceDestOverlap(sourceIds, destIds)) {
     errors.push(
       `${label}: split destination account is in source scope -- use explicit source accounts or exclude it`
@@ -214,7 +246,9 @@ async function validateMirrorStep(
   step: MirrorStep,
   label: string,
   manager: BudgetManager,
-  errors: string[]
+  errors: string[],
+  stepIndex: number,
+  reporter?: RunReporter
 ): Promise<void> {
   const sourceAlias = step.source.budget;
   const destAlias = step.destination.budget;
@@ -233,6 +267,25 @@ async function validateMirrorStep(
     return;
   }
 
+  const selectedSourceAccounts = selectAccounts(sourceAccounts, srcResult.spec!);
+  if (reporter && selectedSourceAccounts.length === 0) {
+    reporter.warn("preflight.emptySourceScope", {
+      stepIndex,
+      stepType: "mirror",
+      spec: step.source.accounts,
+    });
+  }
+  for (const a of selectedSourceAccounts) {
+    if (a.closed && reporter) {
+      reporter.warn("preflight.closedAccountInScope", {
+        stepIndex,
+        budget: sourceAlias,
+        accountName: a.name,
+        accountId: a.id,
+      });
+    }
+  }
+
   // Resolve destination account
   const destResult = resolveAccountId(
     destAccounts,
@@ -243,10 +296,19 @@ async function validateMirrorStep(
     errors.push(`${label}: ${destResult.error}`);
     return;
   }
+  const destAccount = destAccounts.find((x) => x.id === destResult.id);
+  if (destAccount?.closed && reporter) {
+    reporter.warn("preflight.closedAccountInScope", {
+      stepIndex,
+      budget: destAlias,
+      accountName: destAccount.name,
+      accountId: destAccount.id,
+    });
+  }
 
   // Same-budget: source accounts and destination must not overlap
   if (sourceAlias === destAlias) {
-    const sourceIds = getSourceAccountIds(sourceAccounts, srcResult.spec!);
+    const sourceIds = new Set(selectedSourceAccounts.map((a) => a.id));
     if (hasSourceDestOverlap(sourceIds, destResult.id)) {
       errors.push(
         `${label}: same-budget mirror where source accounts include destination account -- they must be distinct`

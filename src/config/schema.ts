@@ -51,6 +51,20 @@ export const PipelineStepSchema = z.discriminatedUnion("type", [
   MirrorStepSchema,
 ]);
 
+const NotifyPushoverSchema = z
+  .object({
+    user: z.string().min(1).optional(),
+    token: z.string().min(1).optional(),
+  })
+  .optional();
+
+const NotifySchema = z
+  .object({
+    onSuccess: z.boolean().default(false),
+    pushover: NotifyPushoverSchema,
+  })
+  .optional();
+
 export const ConfigSchema = z.object({
   server: z.object({
     url: z.string().url(),
@@ -65,6 +79,7 @@ export const ConfigSchema = z.object({
   ),
   pipeline: z.array(PipelineStepSchema).default([]),
   lookbackDays: z.number().int().positive().default(60),
+  notify: NotifySchema,
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runPreflight } from "../orchestrator/preflight";
 import type { BudgetManager } from "../client/budget-manager";
-import type { Config } from "../config/schema";
+import type { Config, SplitStep } from "../config/schema";
 import type { ActualAccount } from "../selector/types";
 
 const CHECKING_ID = "checking-uuid-1111-2222-3333-444444444444";
@@ -60,14 +60,14 @@ function createOverlapConfig(): Config {
       {
         type: "split",
         budget: "alpha",
-        source: { accounts: "all" },
+        source: { accounts: "all", splitMirrored: false },
         tags: {
           "#50/50": {
             multiplier: -0.5,
             destination_account: "Checking",
           },
         },
-      },
+      } satisfies SplitStep,
     ],
   };
 }
@@ -84,14 +84,14 @@ function createNonOverlapConfig(): Config {
       {
         type: "split",
         budget: "alpha",
-        source: { accounts: ["Checking"] },
+        source: { accounts: ["Checking"], splitMirrored: false },
         tags: {
           "#50/50": {
             multiplier: -0.5,
             destination_account: "Recv",
           },
         },
-      },
+      } satisfies SplitStep,
     ],
   };
 }
@@ -122,5 +122,81 @@ describe("runPreflight", () => {
 
     expect(result.ok).toBe(true);
     expect(result.errors).toHaveLength(0);
+  });
+
+  it("emits closedAccountInScope warning when account is closed", async () => {
+    const closedAccount = {
+      id: CHECKING_ID,
+      name: "Checking",
+      offbudget: false,
+      closed: true,
+    };
+    const actual = await import("@actual-app/api");
+    vi.mocked(actual.getAccounts).mockResolvedValue([
+      closedAccount,
+      { id: RECV_ID, name: "Recv", offbudget: false, closed: false },
+    ]);
+
+    const config = createNonOverlapConfig();
+    const manager = createMockManager();
+    const reporter = {
+      warn: vi.fn(),
+      recordStep: vi.fn(),
+      getSummary: vi.fn(),
+      send: vi.fn(),
+    };
+
+    const result = await runPreflight(config, manager, reporter);
+
+    expect(result.ok).toBe(true);
+    expect(reporter.warn).toHaveBeenCalledWith("preflight.closedAccountInScope", {
+      stepIndex: 0,
+      budget: "alpha",
+      accountName: "Checking",
+      accountId: CHECKING_ID,
+    });
+  });
+
+  it("emits emptySourceScope warning when all accounts are closed (all filter)", async () => {
+    const actual = await import("@actual-app/api");
+    vi.mocked(actual.getAccounts).mockResolvedValue([
+      { id: CHECKING_ID, name: "Checking", offbudget: false, closed: true },
+      { id: RECV_ID, name: "Recv", offbudget: false, closed: true },
+    ]);
+
+    const config: Config = {
+      server: { url: "http://localhost:5006" },
+      dataDir: "/tmp/ab-mirror-test",
+      budgets: { alpha: { syncId: "sync-alpha", encrypted: false } },
+      lookbackDays: 60,
+      pipeline: [
+        {
+          type: "split",
+          budget: "alpha",
+          source: { accounts: "all", splitMirrored: false },
+          tags: {
+            "#50/50": {
+              multiplier: -0.5,
+              destination_account: "Recv",
+            },
+          },
+        } satisfies SplitStep,
+      ],
+    };
+    const manager = createMockManager();
+    const reporter = {
+      warn: vi.fn(),
+      recordStep: vi.fn(),
+      getSummary: vi.fn(),
+      send: vi.fn(),
+    };
+
+    await runPreflight(config, manager, reporter);
+
+    expect(reporter.warn).toHaveBeenCalledWith("preflight.emptySourceScope", {
+      stepIndex: 0,
+      stepType: "split",
+      spec: "all",
+    });
   });
 });

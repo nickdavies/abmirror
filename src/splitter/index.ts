@@ -22,18 +22,18 @@ export interface SplitterOptions {
   budgetId: string;
   lookbackDays: number;
   dryRun: boolean;
-}
-
-interface SplitMatch {
-  sourceTx: ActualTransaction;
-  action: TagAction;
-  accountId: string;
+  /** Optional reporter for warnings and step results. */
+  reporter?: import("../notify/reporter").RunReporter;
+  /** Step index (0-based) for warning context. */
+  stepIndex?: number;
 }
 
 export interface SplitDiff {
   toAdd: Array<{ accountId: string; tx: NewTransaction }>;
   toUpdate: Array<{ id: string; date: string; amount: number }>;
 }
+
+export type OnWarn = (code: "splitter.multiTagMatch" | "splitter.scopeMatchNoActionTag", detail: unknown) => void;
 
 /**
  * Pure function: matches source transactions against action tags and
@@ -45,45 +45,67 @@ export function computeSplitDiff(
   tagEntries: Array<[string, TagAction]>,
   existingBySourceId: Map<string, ActualTransaction>,
   budgetId: string,
-  opts: { splitMirrored?: boolean } = {}
+  opts: { splitMirrored?: boolean; onWarn?: OnWarn; stepIndex?: number } = {}
 ): SplitDiff {
-  const { splitMirrored = false } = opts;
+  const { splitMirrored = false, onWarn, stepIndex = 0 } = opts;
   const toAdd: SplitDiff["toAdd"] = [];
   const toUpdate: SplitDiff["toUpdate"] = [];
+  let scopeMatchNoActionTagCount = 0;
 
   for (const tx of selectTransactions(sourceTxs, selector)) {
     if (!splitMirrored && isABMirrorId(tx.imported_id)) continue;
 
     const { tags: txTags } = parseTags(tx.notes);
+    const matchingTags = tagEntries.filter(([tag]) =>
+      txTags.includes(tag.toLowerCase())
+    );
 
-    // Apply the first matching action tag (config-definition order)
-    for (const [tag, action] of tagEntries) {
-      if (!txTags.includes(tag.toLowerCase())) continue;
-
-      const amount = Math.round(tx.amount * action.multiplier);
-      const importedId = formatImportedId(budgetId, tx.id);
-      const existing = existingBySourceId.get(tx.id);
-
-      if (!existing) {
-        toAdd.push({
-          accountId: action.destination_account,
-          tx: {
-            date: tx.date,
-            amount,
-            payee_name: tx.payee_name ?? undefined,
-            notes: tx.notes ?? undefined,
-            // Same budget so categories are 1:1
-            category: tx.category ?? undefined,
-            cleared: tx.cleared,
-            imported_id: importedId,
-          },
-        });
-      } else if (existing.date !== tx.date || existing.amount !== amount) {
-        toUpdate.push({ id: existing.id, date: tx.date, amount });
-      }
-
-      break; // Only first matching tag applies
+    if (matchingTags.length === 0) {
+      scopeMatchNoActionTagCount++;
+      continue;
     }
+
+    if (matchingTags.length > 1 && onWarn) {
+      const [appliedTag] = matchingTags[0]!;
+      const otherTags = matchingTags.slice(1).map(([t]) => t);
+      onWarn("splitter.multiTagMatch", {
+        txId: tx.id,
+        payee: tx.payee_name ?? "?",
+        date: tx.date,
+        appliedTag,
+        otherTags,
+      });
+    }
+
+    const [tag, action] = matchingTags[0]!;
+    const amount = Math.round(tx.amount * action.multiplier);
+    const importedId = formatImportedId(budgetId, tx.id);
+    const existing = existingBySourceId.get(tx.id);
+
+    if (!existing) {
+      toAdd.push({
+        accountId: action.destination_account,
+        tx: {
+          date: tx.date,
+          amount,
+          payee_name: tx.payee_name ?? undefined,
+          notes: tx.notes ?? undefined,
+          // Same budget so categories are 1:1
+          category: tx.category ?? undefined,
+          cleared: tx.cleared,
+          imported_id: importedId,
+        },
+      });
+    } else if (existing.date !== tx.date || existing.amount !== amount) {
+      toUpdate.push({ id: existing.id, date: tx.date, amount });
+    }
+  }
+
+  if (scopeMatchNoActionTagCount > 0 && onWarn) {
+    onWarn("splitter.scopeMatchNoActionTag", {
+      stepIndex,
+      count: scopeMatchNoActionTagCount,
+    });
   }
 
   return { toAdd, toUpdate };
@@ -100,7 +122,7 @@ export async function runSplitter(
   opts: SplitterOptions,
   manager: BudgetManager
 ): Promise<void> {
-  const { step, budgetId, lookbackDays, dryRun } = opts;
+  const { step, budgetId, lookbackDays, dryRun, reporter, stepIndex = 0 } = opts;
   const startDate = lookbackStart(lookbackDays);
   const endDate = new Date().toISOString().slice(0, 10);
 
@@ -174,8 +196,22 @@ export async function runSplitter(
     resolvedTagEntries,
     existingBySourceId,
     budgetId,
-    { splitMirrored: step.source.splitMirrored ?? false }
+    {
+      splitMirrored: step.source.splitMirrored ?? false,
+      onWarn: reporter
+        ? (code, detail) => reporter.warn(code, detail)
+        : undefined,
+      stepIndex,
+    }
   );
+
+  if (reporter) {
+    reporter.recordStep({
+      type: "split",
+      added: diff.toAdd.length,
+      updated: diff.toUpdate.length,
+    });
+  }
 
   if (dryRun) {
     console.log(

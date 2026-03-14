@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { computeSplitDiff } from "../splitter/index";
 import { formatImportedId } from "../util/imported-id";
 import type { ActualTransaction } from "../selector/types";
@@ -126,5 +126,39 @@ describe("computeSplitDiff", () => {
     );
     expect(diff.toAdd).toHaveLength(1);
     expect(diff.toAdd[0]?.tx.amount).toBe(5000);
+  });
+
+  it("calls onWarn for multi-tag match with correct detail", () => {
+    const onWarn = vi.fn();
+    const tx = mkTx("t1", {
+      notes: "#50/50 #0/100",
+      payee_name: "Coffee",
+      date: "2025-03-14",
+    });
+    computeSplitDiff([tx], selector, tagEntries, new Map(), BUDGET_ID, {
+      onWarn,
+    });
+    expect(onWarn).toHaveBeenCalledTimes(1);
+    expect(onWarn).toHaveBeenCalledWith("splitter.multiTagMatch", {
+      txId: "t1",
+      payee: "Coffee",
+      date: "2025-03-14",
+      appliedTag: "#50/50",
+      otherTags: ["#0/100"],
+    });
+  });
+
+  it("calls onWarn for scope match but no action tag", () => {
+    const onWarn = vi.fn();
+    const tx = mkTx("t1", { notes: "#joint" });
+    computeSplitDiff([tx], selector, tagEntries, new Map(), BUDGET_ID, {
+      onWarn,
+      stepIndex: 2,
+    });
+    expect(onWarn).toHaveBeenCalledTimes(1);
+    expect(onWarn).toHaveBeenCalledWith("splitter.scopeMatchNoActionTag", {
+      stepIndex: 2,
+      count: 1,
+    });
   });
 });

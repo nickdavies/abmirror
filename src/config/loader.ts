@@ -3,6 +3,20 @@ import { parse } from "yaml";
 import { ZodError } from "zod";
 import { ConfigSchema, type Config } from "./schema";
 
+/** Resolve notify.pushover user/token from env when absent in config. */
+function resolveNotifySecrets(config: Config): void {
+  const pushover = config.notify?.pushover;
+  if (!pushover) return;
+  if (!pushover.user) {
+    const v = process.env.AB_MIRROR_PUSHOVER_USER;
+    if (v) (pushover as { user?: string }).user = v;
+  }
+  if (!pushover.token) {
+    const v = process.env.AB_MIRROR_PUSHOVER_TOKEN;
+    if (v) (pushover as { token?: string }).token = v;
+  }
+}
+
 export function loadConfig(configPath: string): Config {
   let raw: unknown;
   try {
@@ -13,7 +27,9 @@ export function loadConfig(configPath: string): Config {
   }
 
   try {
-    return ConfigSchema.parse(raw);
+    const config = ConfigSchema.parse(raw);
+    resolveNotifySecrets(config);
+    return config;
   } catch (err) {
     if (err instanceof ZodError) {
       const details = err.errors
