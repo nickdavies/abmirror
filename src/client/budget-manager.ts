@@ -3,11 +3,11 @@
  * open budget at a time, this class tracks the currently active budget and
  * handles sync/switch transparently.
  *
- * Encryption keys per budget come from env: AB_MIRROR_KEY_<ALIAS_UPPERCASED>
- * Server password comes from env: AB_MIRROR_SERVER_PASSWORD
+ * Secrets (server password, budget encryption keys) are injected via constructor.
  */
 import * as actual from "@actual-app/api";
 import type { Config } from "../config/schema";
+import type { Secrets } from "../env";
 
 export interface BudgetInfo {
   alias: string;
@@ -19,19 +19,20 @@ export interface BudgetInfo {
 
 export class BudgetManager {
   private readonly config: Config;
+  private readonly secrets: Secrets;
   private readonly infos = new Map<string, BudgetInfo>();
   private openAlias: string | null = null;
 
-  constructor(config: Config) {
+  constructor(config: Config, secrets: Secrets) {
     this.config = config;
+    this.secrets = secrets;
   }
 
   async init(opts?: { verbose?: boolean }): Promise<void> {
-    const serverPassword = process.env["AB_MIRROR_SERVER_PASSWORD"] ?? "";
     await actual.init({
       dataDir: this.config.dataDir,
       serverURL: this.config.server.url,
-      password: serverPassword,
+      password: this.secrets.serverPassword,
       verbose: opts?.verbose ?? false,
     });
   }
@@ -61,7 +62,7 @@ export class BudgetManager {
     }
 
     const encPassword = budgetConfig.encrypted
-      ? process.env[`AB_MIRROR_KEY_${alias.toUpperCase().replace(/-/g, "_")}`]
+      ? this.secrets.budgetKeys[alias]
       : undefined;
 
     await actual.downloadBudget(budgetConfig.syncId, { password: encPassword });

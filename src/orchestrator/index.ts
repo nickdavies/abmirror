@@ -4,6 +4,7 @@
  * BudgetManager.open) and at the end of the pipeline.
  */
 import type { Config } from "../config/schema";
+import type { Secrets } from "../env";
 import { BudgetManager } from "../client/budget-manager";
 import { runSyncer } from "../syncer/index";
 import { runSplitter } from "../splitter/index";
@@ -11,6 +12,7 @@ import { runPreflight } from "./preflight";
 
 export interface RunOptions {
   config: Config;
+  secrets: Secrets;
   dryRun?: boolean;
   /** If provided, only run the pipeline step at this 0-based index. */
   stepIndex?: number;
@@ -19,9 +21,9 @@ export interface RunOptions {
 }
 
 export async function runPipeline(opts: RunOptions): Promise<void> {
-  const { config, dryRun = false, stepIndex, verbose = false } = opts;
+  const { config, secrets, dryRun = false, stepIndex, verbose = false } = opts;
 
-  const manager = new BudgetManager(config);
+  const manager = new BudgetManager(config, secrets);
   await manager.init({ verbose });
 
   try {
@@ -87,10 +89,11 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
 /** Validate-only: same as runPipeline but stops after preflight. */
 export async function validateConfig(
   config: Config,
-  opts?: { verbose?: boolean }
+  opts: { secrets: Secrets; verbose?: boolean }
 ): Promise<void> {
-  const manager = new BudgetManager(config);
-  await manager.init({ verbose: opts?.verbose ?? false });
+  const { secrets, verbose = false } = opts;
+  const manager = new BudgetManager(config, secrets);
+  await manager.init({ verbose });
 
   try {
     const result = await runPreflight(config, manager);

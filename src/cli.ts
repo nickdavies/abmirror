@@ -10,6 +10,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { Command } from "commander";
 import { loadConfig } from "./config/loader";
+import { loadSecrets } from "./env";
 import { runPipeline, validateConfig } from "./orchestrator/index";
 import { runListAccounts } from "./commands/list-accounts";
 import {
@@ -35,8 +36,9 @@ program
   .option("--verbose", "Show verbose infrastructure messages (sync, breadcrumbs, etc.)")
   .action(async (opts: { config: string; verbose?: boolean }) => {
     const config = loadConfig(opts.config);
+    const secrets = loadSecrets(config);
     try {
-      await validateConfig(config, { verbose: opts.verbose });
+      await validateConfig(config, { secrets, verbose: opts.verbose });
     } catch (err) {
       throw enhanceDownloadError(err, config.server.url);
     }
@@ -52,7 +54,8 @@ program
   .option("--verbose", "Show verbose infrastructure messages (sync, breadcrumbs, etc.)")
   .action(async (opts: { config: string; budget?: string; verbose?: boolean }) => {
     const config = loadConfig(opts.config);
-    const manager = new BudgetManager(config);
+    const secrets = loadSecrets(config);
+    const manager = new BudgetManager(config, secrets);
     await manager.init({ verbose: opts.verbose ?? false });
     try {
       await runListAccounts({
@@ -112,6 +115,7 @@ program
   .option("--verbose", "Show verbose infrastructure messages (sync, breadcrumbs, etc.)")
   .action(async (opts: { config: string; dryRun?: boolean; step?: number; verbose?: boolean }) => {
     const config = loadConfig(opts.config);
+    const secrets = loadSecrets(config);
 
     // Convert 1-based CLI step to 0-based index
     let stepIndex: number | undefined;
@@ -128,6 +132,7 @@ program
     try {
       await runPipeline({
         config,
+        secrets,
         dryRun: opts.dryRun ?? false,
         stepIndex,
         verbose: opts.verbose,

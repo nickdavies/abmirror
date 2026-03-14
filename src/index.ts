@@ -2,6 +2,9 @@
 export { loadConfig } from "./config/loader";
 export type { Config, PipelineStep, SplitStep, MirrorStep } from "./config/schema";
 
+export { loadSecrets, envKeyForBudget } from "./env";
+export type { Secrets } from "./env";
+
 export { BudgetManager } from "./client/budget-manager";
 export type { BudgetInfo } from "./client/budget-manager";
 
