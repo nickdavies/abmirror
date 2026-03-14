@@ -27,6 +27,7 @@ pipeline:
     source:
       accounts: "all"             # or "on-budget", "off-budget", or account IDs
       requiredTags: ["#sync"]
+    # Multi-match is skipped; for multiple destinations, add multiple split steps.
     tags:
       "#50/50":
         multiplier: -0.5

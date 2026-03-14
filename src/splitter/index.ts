@@ -5,7 +5,7 @@
  * Flow:
  *   1. Source selector filters by accounts + requiredTags (scope guard).
  *   2. Action tags (#50/50, #0/100, etc.) determine the transform.
- *   3. Only the first matching action tag per transaction is applied.
+ *   3. When exactly one tag matches, apply it. When multiple match, skip (always exclusive).
  *   4. Existing mirrored copies are updated (date + amount) if changed.
  */
 import * as actual from "@actual-app/api";
@@ -65,22 +65,24 @@ export function computeSplitDiff(
       continue;
     }
 
-    if (matchingTags.length > 1 && onWarn) {
-      const [appliedTag] = matchingTags[0]!;
-      const otherTags = matchingTags.slice(1).map(([t]) => t);
-      onWarn("splitter.multiTagMatch", {
-        txId: tx.id,
-        payee: tx.payee_name ?? "?",
-        date: tx.date,
-        appliedTag,
-        otherTags,
-      });
+    if (matchingTags.length > 1) {
+      if (onWarn) {
+        const matchingTagNames = matchingTags.map(([t]) => t);
+        onWarn("splitter.multiTagMatch", {
+          txId: tx.id,
+          payee: tx.payee_name ?? "?",
+          date: tx.date,
+          matchingTags: matchingTagNames,
+        });
+      }
+      continue;
     }
 
     const [tag, action] = matchingTags[0]!;
     const amount = Math.round(tx.amount * action.multiplier);
     const importedId = formatImportedId(budgetId, tx.id);
-    const existing = existingBySourceId.get(tx.id);
+    const key = `${tx.id}:${action.destination_account}`;
+    const existing = existingBySourceId.get(key);
 
     if (!existing) {
       toAdd.push({
@@ -180,7 +182,7 @@ export async function runSplitter(
       if (!isABMirrorId(tx.imported_id)) continue;
       const parsed = parseImportedId(tx.imported_id as string);
       if (parsed?.budgetId === budgetId) {
-        existingBySourceId.set(parsed.txId, tx);
+        existingBySourceId.set(`${parsed.txId}:${destId}`, tx);
       }
     }
   }

@@ -36,14 +36,12 @@ function formatWarning(code: WarningCode, detail: unknown): string {
       const d = detail as {
         payee?: string;
         date?: string;
-        appliedTag?: string;
-        otherTags?: string[];
+        matchingTags?: string[];
       };
       const payee = d.payee ?? "?";
       const date = d.date ?? "?";
-      const applied = d.appliedTag ?? "?";
-      const others = (d.otherTags ?? []).join(", ");
-      return `Multi-tag: "${payee}" (${date}) – applied ${applied}, also had ${others}`;
+      const tags = (d.matchingTags ?? []).join(", ");
+      return `Multi-tag: "${payee}" (${date}) – skipped, couldn't handle (matched: ${tags})`;
     }
     case "splitter.scopeMatchNoActionTag": {
       const d = detail as { stepIndex?: number; count?: number };

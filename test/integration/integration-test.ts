@@ -491,7 +491,6 @@ async function assertAfterRun1(fixture: Fixture): Promise<Run1Snapshot> {
     const betaDeleteDest = await getAccountTransactions(fixture, "beta", "DeleteDest");
 
     const alphaTaggedFlat = getOneByMarker(alphaRecv, MARKERS.alphaTaggedFlat, "alpha/Recv tagged flat");
-    const alphaMultiAction = getOneByMarker(alphaRecv, MARKERS.alphaMultiAction, "alpha/Recv multi-action");
     const alphaRent = getOneByMarker(alphaRecv, MARKERS.alphaRent, "alpha/Recv rent");
     const alphaDinner = getOneByMarker(alphaRecv, MARKERS.betaDinner, "alpha/Recv inverted beta dinner");
     const alphaExternal = getOneByMarker(
@@ -501,7 +500,6 @@ async function assertAfterRun1(fixture: Fixture): Promise<Run1Snapshot> {
     );
 
     assert(alphaTaggedFlat.amount === 600, "alpha/Recv tagged flat should split to +600");
-    assert(alphaMultiAction.amount === 3500, "alpha/Recv multi-action should use first matching tag (#50/50)");
     assert(alphaRent.amount === 10100, "alpha/Recv rent should split to +10100");
     assert(alphaDinner.amount === 4100, "alpha/Recv inverted beta dinner should be +4100");
     assert(alphaExternal.amount === 750, "alpha/Recv external imported should split to +750");
@@ -526,11 +524,11 @@ async function assertAfterRun1(fixture: Fixture): Promise<Run1Snapshot> {
     assert(gammaTaggedFlat.date === alphaTaggedFlat.date, "gamma/Recv tagged flat date should match source");
 
     assert(
-      visibleTxs(alphaRecv).length === 5,
-      "alpha/Recv should have 5 tx after run 1 (4 split + 1 invert mirror)"
+      visibleTxs(alphaRecv).length === 4,
+      "alpha/Recv should have 4 tx after run 1 (3 split + 1 invert mirror; multi-tag tx skipped)"
     );
-    assert(visibleTxs(betaRecv).length === 5, "beta/Recv should have 5 mirrored tx after run 1");
-    assert(visibleTxs(gammaRecv).length === 5, "gamma/Recv should have 5 mirrored tx after run 1");
+    assert(visibleTxs(betaRecv).length === 4, "beta/Recv should have 4 mirrored tx after run 1");
+    assert(visibleTxs(gammaRecv).length === 4, "gamma/Recv should have 4 mirrored tx after run 1");
     assert(
       visibleTxs(betaDeleteDest).length === 9,
       "beta/DeleteDest should have 8 mirrored + 1 manual tx after run 1"

@@ -22,8 +22,7 @@ describe("createRunReporter", () => {
     reporter.warn("splitter.multiTagMatch", {
       payee: "Coffee",
       date: "2025-03-14",
-      appliedTag: "#50/50",
-      otherTags: ["#0/100"],
+      matchingTags: ["#50/50", "#0/100"],
     });
 
     const summary = reporter.getSummary();

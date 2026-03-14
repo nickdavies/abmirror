@@ -34,27 +34,12 @@ describe("computeSplitDiff", () => {
     expect(diff.toAdd[0]?.tx.imported_id).toBe(formatImportedId(BUDGET_ID, "t1"));
   });
 
-  it("only applies the first matching action tag", () => {
-    // Both #50/50 and #0/100 present, #50/50 comes first in tagEntries
+  it("skips transaction when multiple action tags match (always exclusive)", () => {
     const tx = mkTx("t1", { notes: "#50/50 #0/100", amount: -10000 });
     const diff = computeSplitDiff([tx], selector, tagEntries, new Map(), BUDGET_ID);
 
-    expect(diff.toAdd).toHaveLength(1);
-    expect(diff.toAdd[0]?.tx.amount).toBe(5000); // -0.5 multiplier
-  });
-
-  it("applies #0/100 when it comes first in tagEntries (config order wins over notes order)", () => {
-    // Reversed tag order: #0/100 first, then #50/50. Transaction has both tags.
-    // Config order determines which action applies, not the order in notes.
-    const reversedTagEntries: Array<[string, TagAction]> = [
-      ["#0/100", { multiplier: -1.0, destination_account: "dest-acct" }],
-      ["#50/50", { multiplier: -0.5, destination_account: "dest-acct" }],
-    ];
-    const tx = mkTx("t1", { notes: "#50/50 #0/100", amount: -10000 });
-    const diff = computeSplitDiff([tx], selector, reversedTagEntries, new Map(), BUDGET_ID);
-
-    expect(diff.toAdd).toHaveLength(1);
-    expect(diff.toAdd[0]?.tx.amount).toBe(10000); // -10000 * -1.0 (from #0/100, not #50/50)
+    expect(diff.toAdd).toHaveLength(0);
+    expect(diff.toUpdate).toHaveLength(0);
   });
 
   it("skips transactions with no matching action tags", () => {
@@ -77,7 +62,7 @@ describe("computeSplitDiff", () => {
       amount: -5000, // was -10000 * -0.5
       date: "2025-03-01",
     });
-    const existingMap = new Map([["t1", existing]]);
+    const existingMap = new Map([["t1:dest-acct", existing]]);
 
     const diff = computeSplitDiff([tx], selector, tagEntries, existingMap, BUDGET_ID);
     expect(diff.toUpdate).toHaveLength(1);
@@ -128,24 +113,42 @@ describe("computeSplitDiff", () => {
     expect(diff.toAdd[0]?.tx.amount).toBe(5000);
   });
 
-  it("calls onWarn for multi-tag match with correct detail", () => {
+  it("calls onWarn for multi-tag match and skips transaction", () => {
     const onWarn = vi.fn();
     const tx = mkTx("t1", {
       notes: "#50/50 #0/100",
       payee_name: "Coffee",
       date: "2025-03-14",
     });
-    computeSplitDiff([tx], selector, tagEntries, new Map(), BUDGET_ID, {
+    const diff = computeSplitDiff([tx], selector, tagEntries, new Map(), BUDGET_ID, {
       onWarn,
     });
+    expect(diff.toAdd).toHaveLength(0);
+    expect(diff.toUpdate).toHaveLength(0);
     expect(onWarn).toHaveBeenCalledTimes(1);
     expect(onWarn).toHaveBeenCalledWith("splitter.multiTagMatch", {
       txId: "t1",
       payee: "Coffee",
       date: "2025-03-14",
-      appliedTag: "#50/50",
-      otherTags: ["#0/100"],
+      matchingTags: ["#50/50", "#0/100"],
     });
+  });
+
+  it("composite key: lookup finds correct copy per destination account", () => {
+    const tx = mkTx("t1", { notes: "#50/50", amount: -10000 });
+    const existingInA = mkTx("dest-a", {
+      id: "dest-a",
+      amount: -5000,
+      date: "2025-03-01",
+    });
+    const existingMap = new Map([
+      ["t1:acct-a", existingInA],
+      ["t1:dest-acct", mkTx("dest-b", { id: "dest-b", amount: -5000, date: "2025-03-01" })],
+    ]);
+    const diff = computeSplitDiff([tx], selector, tagEntries, existingMap, BUDGET_ID);
+    expect(diff.toAdd).toHaveLength(0);
+    expect(diff.toUpdate).toHaveLength(1);
+    expect(diff.toUpdate[0]?.id).toBe("dest-b");
   });
 
   it("calls onWarn for scope match but no action tag", () => {

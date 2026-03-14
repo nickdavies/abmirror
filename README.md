@@ -145,8 +145,8 @@ npm run test:integration
 | `lookbackDays` | How far back to scan transactions (default: 60) |
 | `notify` | Optional push notifications (Pushover). `onSuccess: false` (default) = only notify on failure or warnings. Use `${AB_MIRROR_PUSHOVER_USER}` and `${AB_MIRROR_PUSHOVER_TOKEN}` for credentials. |
 
-**Notify**: When configured, sends run summaries and non-fatal warnings (e.g. multi-tag matches, closed accounts in scope) to Pushover. The full report is always logged to stdout; Pushover messages may be truncated with a pointer to check logs.
+**Notify**: When configured, sends run summaries and non-fatal warnings (e.g. multi-tag skipped, closed accounts in scope) to Pushover. The full report is always logged to stdout; Pushover messages may be truncated with a pointer to check logs.
 
-**Split step**: Splits tagged transactions from source accounts into destination accounts based on tag multipliers.
+**Split step**: Splits tagged transactions from source accounts into destination accounts based on tag multipliers. Tags are always exclusive: when a transaction matches multiple action tags, it is skipped (reported via notifier). For multiple destinations, add multiple split steps.
 
 **Mirror step**: Copies transactions from source budget/accounts to a destination budget/account. Options: `invert`, `delete`, `copyMirrored`, `categoryMapping`.
