@@ -150,3 +150,19 @@ npm run test:integration
 **Split step**: Splits tagged transactions from source accounts into destination accounts based on tag multipliers. Tags are always exclusive: when a transaction matches multiple action tags, it is skipped (reported via notifier). For multiple destinations, add multiple split steps.
 
 **Mirror step**: Copies transactions from source budget/accounts to a destination budget/account. Options: `invert`, `delete`, `copyMirrored`, `categoryMapping`.
+
+## Known limitation: Config changes can strand transactions
+
+When you **change the config** so a destination is no longer in the step (e.g. change `#50/50` from `JointAccount` to `SplitAccount` and remove `JointAccount` from the config), we stop reading from the old destination. Transactions there become **stranded**—they remain but are no longer managed.
+
+This applies only to **config changes**, not to **transaction content changes**. If a user changes a transaction's tag from `#50/50` to `#0/100`, we read from both destinations and correctly delete from the old one and add to the new one.
+
+### Migration pattern for config changes
+
+When changing destinations in config, use a stepwise migration:
+
+1. Add a temporary tag mapping to keep the old account in scope: `"#legacy" -> old_account`
+2. Run the pipeline. We read from both old and new destinations; stranded transactions in the old account are deleted (they are not in the desired set).
+3. Remove the `#legacy` entry from config.
+
+You control `lookbackDays` for how far back to clean—use a shorter value for recent-only cleanup, or the full value for a complete migration.

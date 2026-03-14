@@ -7,8 +7,9 @@ import type { Config } from "../config/schema";
 import type { Secrets } from "../env";
 import { BudgetManager } from "../client/budget-manager";
 import { createRunReporter } from "../notify/reporter";
-import { runSyncer } from "../syncer/index";
-import { runSplitter } from "../splitter/index";
+import { runSyncEngine } from "../diff/sync-engine";
+import { createMirrorEngine, buildMirrorOpts } from "../engines/mirror-engine";
+import { createSplitEngine, buildSplitOpts } from "../engines/split-engine";
 import { runPreflight } from "./preflight";
 
 export interface RunOptions {
@@ -55,11 +56,10 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
       console.log(`\nStep ${displayIndex + 1}: ${step.type}`);
 
       if (step.type === "split") {
-        const budgetInfo = manager.getInfo(step.budget);
-        await runSplitter(
+        const engine = createSplitEngine(step);
+        const opts = await buildSplitOpts(
+          step,
           {
-            step,
-            budgetId: budgetInfo.budgetId,
             lookbackDays: config.lookbackDays,
             dryRun,
             reporter,
@@ -67,21 +67,22 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
           },
           manager
         );
+        await runSyncEngine(engine, opts, manager);
         continue;
       }
 
       if (step.type === "mirror") {
-        const sourceBudgetInfo = manager.getInfo(step.source.budget);
-        await runSyncer(
+        const engine = createMirrorEngine(step);
+        const opts = await buildMirrorOpts(
+          step,
           {
-            step,
-            sourceBudgetId: sourceBudgetInfo.budgetId,
             lookbackDays: config.lookbackDays,
             dryRun,
             reporter,
           },
           manager
         );
+        await runSyncEngine(engine, opts, manager);
         continue;
       }
     }
