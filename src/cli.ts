@@ -17,6 +17,7 @@ import {
   runListBudgets,
 } from "./commands/list-budgets";
 import { BudgetManager } from "./client/budget-manager";
+import { enhanceDownloadError } from "./util/errors";
 
 const program = new Command();
 
@@ -31,9 +32,14 @@ program
     "Download all budgets from config and validate accounts, categories, and tags. No mutations."
   )
   .requiredOption("--config <path>", "Path to YAML config file")
-  .action(async (opts: { config: string }) => {
+  .option("--verbose", "Show verbose infrastructure messages (sync, breadcrumbs, etc.)")
+  .action(async (opts: { config: string; verbose?: boolean }) => {
     const config = loadConfig(opts.config);
-    await validateConfig(config);
+    try {
+      await validateConfig(config, { verbose: opts.verbose });
+    } catch (err) {
+      throw enhanceDownloadError(err, config.server.url);
+    }
   });
 
 program
@@ -43,18 +49,33 @@ program
   )
   .requiredOption("--config <path>", "Path to YAML config file")
   .option("--budget <alias>", "Only list accounts for this budget alias")
-  .action(async (opts: { config: string; budget?: string }) => {
+  .option("--verbose", "Show verbose infrastructure messages (sync, breadcrumbs, etc.)")
+  .action(async (opts: { config: string; budget?: string; verbose?: boolean }) => {
     const config = loadConfig(opts.config);
     const manager = new BudgetManager(config);
-    await manager.init();
+    await manager.init({ verbose: opts.verbose ?? false });
     try {
       await runListAccounts({
         config,
         manager,
         budgetAlias: opts.budget,
       });
+    } catch (err) {
+      throw enhanceDownloadError(err, config.server.url);
     } finally {
-      await manager.shutdown();
+      try {
+        await manager.shutdown();
+      } catch (shutdownErr) {
+        // Actual API can throw "Cannot destructure property 'id' of 'getPrefs(...)' as it is null"
+        // during close-budget when prefs are already cleared. List-accounts is read-only, so
+        // ignoring shutdown errors is safe.
+        if (
+          shutdownErr instanceof Error &&
+          !shutdownErr.message.includes("getPrefs")
+        ) {
+          throw shutdownErr;
+        }
+      }
     }
   });
 
@@ -69,12 +90,14 @@ program
     "Temporary directory for API init",
     join(tmpdir(), "ab-mirror-list-budgets")
   )
-  .action(async (opts: { server: string; dataDir: string }) => {
+  .option("--verbose", "Show verbose infrastructure messages")
+  .action(async (opts: { server: string; dataDir: string; verbose?: boolean }) => {
     const password = await resolvePassword(opts.server);
     await runListBudgets({
       serverUrl: opts.server,
       dataDir: opts.dataDir,
       password,
+      verbose: opts.verbose,
     });
   });
 
@@ -86,7 +109,8 @@ program
   .requiredOption("--config <path>", "Path to YAML config file")
   .option("--dry-run", "Validate and simulate execution without writing anything")
   .option("--step <n>", "Run only the pipeline step at this 1-based index", parseInt)
-  .action(async (opts: { config: string; dryRun?: boolean; step?: number }) => {
+  .option("--verbose", "Show verbose infrastructure messages (sync, breadcrumbs, etc.)")
+  .action(async (opts: { config: string; dryRun?: boolean; step?: number; verbose?: boolean }) => {
     const config = loadConfig(opts.config);
 
     // Convert 1-based CLI step to 0-based index
@@ -101,10 +125,20 @@ program
       stepIndex = opts.step - 1;
     }
 
-    await runPipeline({ config, dryRun: opts.dryRun ?? false, stepIndex });
+    try {
+      await runPipeline({
+        config,
+        dryRun: opts.dryRun ?? false,
+        stepIndex,
+        verbose: opts.verbose,
+      });
+    } catch (err) {
+      throw enhanceDownloadError(err, config.server.url);
+    }
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {
-  console.error("Fatal error:", err);
+  const enhanced = enhanceDownloadError(err);
+  console.error("Fatal error:", enhanced instanceof Error ? enhanced.message : enhanced);
   process.exit(1);
 });

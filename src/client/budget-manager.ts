@@ -26,12 +26,13 @@ export class BudgetManager {
     this.config = config;
   }
 
-  async init(): Promise<void> {
-    const serverPassword = process.env["AB_MIRROR_SERVER_PASSWORD"];
+  async init(opts?: { verbose?: boolean }): Promise<void> {
+    const serverPassword = process.env["AB_MIRROR_SERVER_PASSWORD"] ?? "";
     await actual.init({
       dataDir: this.config.dataDir,
       serverURL: this.config.server.url,
       password: serverPassword,
+      verbose: opts?.verbose ?? false,
     });
   }
 

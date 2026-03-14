@@ -55,12 +55,25 @@ export async function runListAccounts(opts: ListAccountsOptions): Promise<void> 
       byName.set(a.name, list);
     }
 
-    for (const a of accounts) {
+    const rows = accounts.map((a) => {
       const typeLabel = a.offbudget ? "off-budget" : "on-budget";
       const statusLabel = a.closed ? "closed" : "open";
       const dupNote = (byName.get(a.name)?.length ?? 0) > 1 ? "  (duplicate name)" : "";
       const bal = formatBalance(a.balance_current);
-      console.log(`  ${a.name}\t${a.id}\t${typeLabel}\t${statusLabel}${bal}${dupNote}`);
+      return { name: a.name, id: a.id, typeLabel, statusLabel, bal, dupNote };
+    });
+
+    const maxName = Math.max(1, ...rows.map((r) => r.name.length));
+    const maxId = Math.max(1, ...rows.map((r) => r.id.length));
+    const maxType = Math.max(1, ...rows.map((r) => r.typeLabel.length));
+    const maxStatus = Math.max(1, ...rows.map((r) => r.statusLabel.length));
+
+    for (const r of rows) {
+      const namePad = r.name.padEnd(maxName);
+      const idPad = r.id.padEnd(maxId);
+      const typePad = r.typeLabel.padEnd(maxType);
+      const statusPad = r.statusLabel.padEnd(maxStatus);
+      console.log(`  ${namePad}  ${idPad}  ${typePad}  ${statusPad}${r.bal}${r.dupNote}`);
     }
   }
 }

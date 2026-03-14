@@ -14,13 +14,15 @@ export interface RunOptions {
   dryRun?: boolean;
   /** If provided, only run the pipeline step at this 0-based index. */
   stepIndex?: number;
+  /** Show verbose infrastructure messages from Actual API. */
+  verbose?: boolean;
 }
 
 export async function runPipeline(opts: RunOptions): Promise<void> {
-  const { config, dryRun = false, stepIndex } = opts;
+  const { config, dryRun = false, stepIndex, verbose = false } = opts;
 
   const manager = new BudgetManager(config);
-  await manager.init();
+  await manager.init({ verbose });
 
   try {
     // Preflight downloads all budgets and validates everything
@@ -83,9 +85,12 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
 }
 
 /** Validate-only: same as runPipeline but stops after preflight. */
-export async function validateConfig(config: Config): Promise<void> {
+export async function validateConfig(
+  config: Config,
+  opts?: { verbose?: boolean }
+): Promise<void> {
   const manager = new BudgetManager(config);
-  await manager.init();
+  await manager.init({ verbose: opts?.verbose ?? false });
 
   try {
     const result = await runPreflight(config, manager);

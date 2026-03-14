@@ -90,10 +90,11 @@ export interface ListBudgetsOptions {
   serverUrl: string;
   dataDir: string;
   password: string;
+  verbose?: boolean;
 }
 
 export async function runListBudgets(opts: ListBudgetsOptions): Promise<void> {
-  const { serverUrl, dataDir, password } = opts;
+  const { serverUrl, dataDir, password, verbose = false } = opts;
 
   mkdirSync(dataDir, { recursive: true });
 
@@ -101,6 +102,7 @@ export async function runListBudgets(opts: ListBudgetsOptions): Promise<void> {
     dataDir,
     serverURL: serverUrl,
     password,
+    verbose,
   });
 
   try {
