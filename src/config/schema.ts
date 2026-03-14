@@ -62,7 +62,7 @@ export const ConfigSchema = z.object({
       encrypted: z.boolean().default(false),
     })
   ),
-  pipeline: z.array(PipelineStepSchema).min(1),
+  pipeline: z.array(PipelineStepSchema).default([]),
   lookbackDays: z.number().int().positive().default(60),
 });
 
