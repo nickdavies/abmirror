@@ -4,11 +4,18 @@
  *   ab-mirror validate --config <path>
  *   ab-mirror run --config <path> [--dry-run] [--step <n>]
  *   ab-mirror list-accounts --config <path> [--budget <alias>]
+ *   ab-mirror list-budgets --server <url> [--data-dir <path>]
  */
+import { tmpdir } from "os";
+import { join } from "path";
 import { Command } from "commander";
 import { loadConfig } from "./config/loader";
 import { runPipeline, validateConfig } from "./orchestrator/index";
 import { runListAccounts } from "./commands/list-accounts";
+import {
+  resolvePassword,
+  runListBudgets,
+} from "./commands/list-budgets";
 import { BudgetManager } from "./client/budget-manager";
 
 const program = new Command();
@@ -49,6 +56,26 @@ program
     } finally {
       await manager.shutdown();
     }
+  });
+
+program
+  .command("list-budgets")
+  .description(
+    "List sync IDs and budget names for a given Actual sync server. Prompts for password if required and not set in AB_MIRROR_SERVER_PASSWORD."
+  )
+  .requiredOption("--server <url>", "Actual sync server URL (e.g. http://localhost:5006)")
+  .option(
+    "--data-dir <path>",
+    "Temporary directory for API init",
+    join(tmpdir(), "ab-mirror-list-budgets")
+  )
+  .action(async (opts: { server: string; dataDir: string }) => {
+    const password = await resolvePassword(opts.server);
+    await runListBudgets({
+      serverUrl: opts.server,
+      dataDir: opts.dataDir,
+      password,
+    });
   });
 
 program
