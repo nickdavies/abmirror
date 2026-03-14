@@ -43,6 +43,20 @@ describe("computeSplitDiff", () => {
     expect(diff.toAdd[0]?.tx.amount).toBe(5000); // -0.5 multiplier
   });
 
+  it("applies #0/100 when it comes first in tagEntries (config order wins over notes order)", () => {
+    // Reversed tag order: #0/100 first, then #50/50. Transaction has both tags.
+    // Config order determines which action applies, not the order in notes.
+    const reversedTagEntries: Array<[string, TagAction]> = [
+      ["#0/100", { multiplier: -1.0, destination_account: "dest-acct" }],
+      ["#50/50", { multiplier: -0.5, destination_account: "dest-acct" }],
+    ];
+    const tx = mkTx("t1", { notes: "#50/50 #0/100", amount: -10000 });
+    const diff = computeSplitDiff([tx], selector, reversedTagEntries, new Map(), BUDGET_ID);
+
+    expect(diff.toAdd).toHaveLength(1);
+    expect(diff.toAdd[0]?.tx.amount).toBe(10000); // -10000 * -1.0 (from #0/100, not #50/50)
+  });
+
   it("skips transactions with no matching action tags", () => {
     const tx = mkTx("t1", { notes: "#joint" });
     const diff = computeSplitDiff([tx], selector, tagEntries, new Map(), BUDGET_ID);
