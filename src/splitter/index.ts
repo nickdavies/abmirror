@@ -44,12 +44,16 @@ export function computeSplitDiff(
   selector: { accounts: import("../config/schema").AccountsSpec; requiredTags?: string[] },
   tagEntries: Array<[string, TagAction]>,
   existingBySourceId: Map<string, ActualTransaction>,
-  budgetId: string
+  budgetId: string,
+  opts: { splitMirrored?: boolean } = {}
 ): SplitDiff {
+  const { splitMirrored = false } = opts;
   const toAdd: SplitDiff["toAdd"] = [];
   const toUpdate: SplitDiff["toUpdate"] = [];
 
   for (const tx of selectTransactions(sourceTxs, selector)) {
+    if (!splitMirrored && isABMirrorId(tx.imported_id)) continue;
+
     const { tags: txTags } = parseTags(tx.notes);
 
     // Apply the first matching action tag (config-definition order)
@@ -169,7 +173,8 @@ export async function runSplitter(
     selector,
     resolvedTagEntries,
     existingBySourceId,
-    budgetId
+    budgetId,
+    { splitMirrored: step.source.splitMirrored ?? false }
   );
 
   if (dryRun) {

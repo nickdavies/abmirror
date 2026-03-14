@@ -382,17 +382,6 @@ async function bootstrap(): Promise<Fixture> {
     budgets,
   };
 
-  const splitSourceAccounts = [budgets.alpha.accountIds.Checking];
-  const splitDestinationAccounts = [budgets.alpha.accountIds.Recv];
-  const overlap = splitSourceAccounts.filter(
-    (accountId) => accountId && splitDestinationAccounts.includes(accountId)
-  );
-  // Temporary guardrail while splitter source/destination overlap remains a known footgun.
-  assert(
-    overlap.length === 0,
-    `Split source accounts overlap with destination accounts: ${overlap.join(", ")}`
-  );
-
   const config = {
     server: { url: SERVER_URL },
     dataDir: fixture.binaryDataDir,
@@ -815,6 +804,37 @@ async function main(): Promise<void> {
       AB_MIRROR_SERVER_PASSWORD: fixture.serverPassword,
     },
   });
+
+  console.log("Testing split source/dest overlap validation...");
+  const overlapConfigPath = path.join(path.dirname(fixture.configPath), ".tmp-overlap-config.yaml");
+  const overlapConfig = {
+    server: { url: SERVER_URL },
+    dataDir: fixture.binaryDataDir,
+    budgets: {
+      alpha: { syncId: fixture.budgets.alpha.syncId, encrypted: false },
+    },
+    lookbackDays: 3650,
+    pipeline: [
+      {
+        type: "split",
+        budget: "alpha",
+        source: { accounts: "all" },
+        tags: {
+          "#50/50": {
+            multiplier: -0.5,
+            destination_account: "Checking",
+          },
+        },
+      },
+    ],
+  };
+  writeFileSync(overlapConfigPath, stringify(overlapConfig), "utf-8");
+  const overlapResult = runValidate(overlapConfigPath, fixture);
+  assert(overlapResult.exitCode !== 0, "validate should fail when split destination is in source scope");
+  assert(
+    overlapResult.stderr.includes("split destination account is in source scope"),
+    "stderr should include overlap error message"
+  );
 
   console.log("Blackbox integration test passed.");
 }

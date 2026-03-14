@@ -12,7 +12,7 @@
  * All errors are collected and reported together.
  */
 import * as actual from "@actual-app/api";
-import type { Config, MirrorStep, SplitStep } from "../config/schema";
+import type { AccountsSpec, Config, MirrorStep, SplitStep } from "../config/schema";
 import { selectAccounts } from "../selector/index";
 import type { BudgetManager } from "../client/budget-manager";
 import type { ActualAccount, ActualCategory } from "../selector/types";
@@ -146,6 +146,27 @@ function validateTagStrings(
   }
 }
 
+/** Returns IDs of accounts selected by the spec (all/on-budget/off-budget/IDs). */
+function getSourceAccountIds(
+  accounts: ActualAccount[],
+  spec: AccountsSpec
+): Set<string> {
+  const selected = selectAccounts(accounts, spec);
+  return new Set(selected.map((a) => a.id));
+}
+
+/** True if any destId is in the source set (overlap = invalid). */
+function hasSourceDestOverlap(
+  sourceIds: Set<string>,
+  destIds: Set<string> | string
+): boolean {
+  const destSet = typeof destIds === "string" ? new Set([destIds]) : destIds;
+  for (const id of destSet) {
+    if (sourceIds.has(id)) return true;
+  }
+  return false;
+}
+
 async function validateSplitStep(
   step: SplitStep,
   label: string,
@@ -166,6 +187,7 @@ async function validateSplitStep(
   }
 
   // Validate destination accounts referenced in tag actions
+  const destIds = new Set<string>();
   for (const [tag, action] of Object.entries(step.tags)) {
     const destResult = resolveAccountId(
       accounts,
@@ -174,7 +196,17 @@ async function validateSplitStep(
     );
     if (!destResult.ok) {
       errors.push(`${label}: tag "${tag}" ${destResult.error}`);
+    } else {
+      destIds.add(destResult.id);
     }
+  }
+
+  // Split source and destination must not overlap
+  const sourceIds = getSourceAccountIds(accounts, srcResult.spec!);
+  if (hasSourceDestOverlap(sourceIds, destIds)) {
+    errors.push(
+      `${label}: split destination account is in source scope -- use explicit source accounts or exclude it`
+    );
   }
 }
 
@@ -214,12 +246,8 @@ async function validateMirrorStep(
 
   // Same-budget: source accounts and destination must not overlap
   if (sourceAlias === destAlias) {
-    const selectedSrcAccounts = selectAccounts(
-      sourceAccounts,
-      srcResult.spec!
-    );
-    const selectedSrcIds = new Set(selectedSrcAccounts.map((a) => a.id));
-    if (selectedSrcIds.has(destResult.id)) {
+    const sourceIds = getSourceAccountIds(sourceAccounts, srcResult.spec!);
+    if (hasSourceDestOverlap(sourceIds, destResult.id)) {
       errors.push(
         `${label}: same-budget mirror where source accounts include destination account -- they must be distinct`
       );
