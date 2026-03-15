@@ -1,0 +1,53 @@
+# After running the mirror step:
+#   src:checking → dst:recv (all transactions, no invert)
+#
+# Global sort order for after-state (budgetAlias, accountName, date, notes, payee_name):
+#   1. dst | recv | 2025-01-15 | "" | Coffee  → TX-1 (mirrored copy, imported_id → TX-3)
+#   2. dst | recv | 2025-01-20 | "" | Lunch   → TX-2 (mirrored copy, imported_id → TX-4)
+#   3. src | checking | 2025-01-15 | "" | Coffee → TX-3 (original)
+#   4. src | checking | 2025-01-20 | "" | Lunch  → TX-4 (original)
+budgets:
+  dst:
+    accounts:
+      recv:
+        transactions:
+          - id: TX-1
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:src:TX-3"
+            subs: []
+          - id: TX-2
+            date: "2025-01-20"
+            amount: -5000
+            payee_name: Lunch
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:src:TX-4"
+            subs: []
+  src:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-3
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []
+          - id: TX-4
+            date: "2025-01-20"
+            amount: -5000
+            payee_name: Lunch
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []
