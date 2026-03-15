@@ -1,0 +1,12 @@
+# Example: split step only. Replace budget alias and account IDs with your bootstrapped values.
+# Use: ab-mirror list-accounts --config localdev/config.yaml to get account IDs.
+pipeline:
+  - type: split
+    budget: nick
+    source:
+      accounts: "all"
+      requiredTags: ["#sync"]
+    tags:
+      "#50/50":
+        multiplier: -0.5
+        destination_account: "<account-id>"
