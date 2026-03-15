@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
+    "test:yaml": "vitest run test/integration/yaml-cases.test.ts",
     "typecheck": "tsc --noEmit",
     "test:e2e": "bash test/e2e/run.sh"
   },

@@ -123,7 +123,7 @@ export type InMemoryStep =
  * Execute every step in the pipeline once.
  * Returns true if any step produced at least one add/update/delete.
  */
-async function runOneRound(
+export async function runOneRoundInMemory(
   env: RuntimeEnv,
   steps: InMemoryStep[]
 ): Promise<boolean> {
@@ -169,11 +169,11 @@ export async function runInMemoryPipeline(
 
   // Settling rounds — propagate changes fully
   for (let i = 0; i < settlingRounds; i++) {
-    await runOneRound(env, steps);
+    await runOneRoundInMemory(env, steps);
   }
 
   // Idempotency check round
-  const changed = await runOneRound(env, steps);
+  const changed = await runOneRoundInMemory(env, steps);
 
   return { converged: !changed, settlingRounds };
 }

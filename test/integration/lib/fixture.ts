@@ -68,6 +68,71 @@ export type FixtureSnapshot = {
   budgets: Record<string, BudgetSnapshot>;
 };
 
+// ─── Diff (for concise test output) ───────────────────────────────────────────
+
+/**
+ * Compare two fixture snapshots and return a short summary of what changed.
+ * Used when the pipeline fails to converge so we log only the oscillation delta.
+ */
+export function diffFixtureSnapshots(
+  before: FixtureSnapshot,
+  after: FixtureSnapshot
+): string {
+  const lines: string[] = [];
+
+  const budgetAliases = new Set([
+    ...Object.keys(before.budgets ?? {}),
+    ...Object.keys(after.budgets ?? {}),
+  ]);
+
+  for (const alias of [...budgetAliases].sort()) {
+    const bBudget = before.budgets?.[alias];
+    const aBudget = after.budgets?.[alias];
+
+    const accountNames = new Set([
+      ...Object.keys(bBudget?.accounts ?? {}),
+      ...Object.keys(aBudget?.accounts ?? {}),
+    ]);
+
+    for (const accountName of [...accountNames].sort()) {
+      const bAcct = bBudget?.accounts?.[accountName];
+      const aAcct = aBudget?.accounts?.[accountName];
+
+      const bTxs = bAcct?.transactions ?? [];
+      const aTxs = aAcct?.transactions ?? [];
+
+      const bById = new Map(bTxs.map((t) => [t.id, t]));
+      const aById = new Map(aTxs.map((t) => [t.id, t]));
+
+      const added = aTxs.filter((t) => !bById.has(t.id)).map((t) => t.id);
+      const removed = bTxs.filter((t) => !aById.has(t.id)).map((t) => t.id);
+      const changed: string[] = [];
+
+      for (const [id, aTx] of aById) {
+        const bTx = bById.get(id);
+        if (!bTx) continue;
+        const fields: string[] = [];
+        if (bTx.date !== aTx.date) fields.push(`date ${bTx.date} → ${aTx.date}`);
+        if (bTx.amount !== aTx.amount) fields.push(`amount ${bTx.amount} → ${aTx.amount}`);
+        if ((bTx.notes ?? null) !== (aTx.notes ?? null)) fields.push("notes");
+        if ((bTx.imported_id ?? null) !== (aTx.imported_id ?? null)) fields.push("imported_id");
+        if (fields.length) changed.push(`${id} (${fields.join(", ")})`);
+      }
+
+      if (added.length || removed.length || changed.length) {
+        const parts: string[] = [];
+        if (added.length) parts.push(`+${added.join(", +")}`);
+        if (removed.length) parts.push(`-${removed.join(", -")}`);
+        if (changed.length) parts.push(`~${changed.join("; ")}`);
+        lines.push(`${alias}.${accountName}: ${parts.join(" | ")}`);
+      }
+    }
+  }
+
+  if (lines.length === 0) return "(no structural diff)";
+  return lines.join("\n");
+}
+
 // ─── IdMap ────────────────────────────────────────────────────────────────────
 
 /**

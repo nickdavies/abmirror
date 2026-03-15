@@ -47,18 +47,23 @@ export function computeDiff(
   const toAdd: SyncDiff["toAdd"] = [];
   const toUpdate: SyncDiff["toUpdate"] = [];
   const toDelete: SyncDiff["toDelete"] = [];
+  /** Existing tx ids already matched by a desired key (same tx can be indexed under multiple keys). */
+  const matchedExistingIds = new Set<string>();
 
   for (const [key, { accountId, tx }] of desired) {
     const existingTx = existing.get(key);
     const amount = tx.amount ?? 0;
     if (!existingTx) {
       toAdd.push({ accountId, tx });
-    } else if (existingTx.date !== tx.date || existingTx.amount !== amount) {
-      toUpdate.push({ id: existingTx.id, date: tx.date, amount });
+    } else {
+      matchedExistingIds.add(existingTx.id);
+      if (existingTx.date !== tx.date || existingTx.amount !== amount) {
+        toUpdate.push({ id: existingTx.id, date: tx.date, amount });
+      }
     }
   }
   for (const [key, tx] of existing) {
-    if (!desired.has(key)) toDelete.push(tx);
+    if (!desired.has(key) && !matchedExistingIds.has(tx.id)) toDelete.push(tx);
   }
   return { toAdd, toUpdate, toDelete };
 }

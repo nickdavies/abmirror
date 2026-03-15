@@ -2,7 +2,7 @@ pipeline:
   - type: split
     budget: src
     source:
-      accounts: "src"
+      accounts: "checking"
       requiredTags: ["#joint"]
     tags:
       "#50/50":

@@ -32,7 +32,7 @@ budgets:
             cleared: null
             imported_id: null
             subs:
-              - id: SUB-1
+              - id: TX-3-SUB-1
                 date: "2025-01-20"
                 amount: -6000
                 payee_name: Costco
@@ -40,8 +40,7 @@ budgets:
                 category: Groceries
                 cleared: null
                 imported_id: null
-                subs: []
-              - id: SUB-2
+              - id: TX-3-SUB-2
                 date: "2025-01-20"
                 amount: -2000
                 payee_name: costco
@@ -49,4 +48,3 @@ budgets:
                 category: null
                 cleared: null
                 imported_id: null
-                subs:

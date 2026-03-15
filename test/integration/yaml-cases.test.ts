@@ -139,9 +139,14 @@ import {
   loadFixture,
   importFixtureToRuntime,
   exportRuntimeToFixture,
+  diffFixtureSnapshots,
   type FixtureSnapshot,
 } from "./lib/fixture";
-import { runInMemoryPipeline, type InMemoryStep } from "./lib/pipeline-runner";
+import {
+  runInMemoryPipeline,
+  runOneRoundInMemory,
+  type InMemoryStep,
+} from "./lib/pipeline-runner";
 import { setMockEnv } from "./lib/actual-mock-state";
 
 // ─── Case discovery ───────────────────────────────────────────────────────────
@@ -184,6 +189,43 @@ function loadPipeline(pipelinePath: string): InMemoryStep[] {
 
 const cases = discoverCases();
 
+async function logOscillationDiff(
+  caseName: string,
+  before: FixtureSnapshot,
+  steps: InMemoryStep[]
+): Promise<void> {
+  try {
+    const { env, idMap } = importFixtureToRuntime(before);
+    setMockEnv(env);
+
+    const settlingRounds = steps.length + 1;
+
+    // Run settling rounds to reach the "before idempotency" state
+    for (let i = 0; i < settlingRounds; i++) {
+      await runOneRoundInMemory(env, steps);
+    }
+    const beforeIdempotency = exportRuntimeToFixture(env, idMap);
+
+    // One more round to capture the oscillation
+    await runOneRoundInMemory(env, steps);
+    const afterIdempotency = exportRuntimeToFixture(env, idMap);
+
+    const diffSummary = diffFixtureSnapshots(beforeIdempotency, afterIdempotency);
+    // eslint-disable-next-line no-console
+    console.error(
+      `\nCase "${caseName}": pipeline oscillation between last two rounds\n` +
+        `Diff (what changed):\n${diffSummary}\n`
+    );
+  } catch (e) {
+    // If our debug helper itself fails, at least surface that information.
+    // eslint-disable-next-line no-console
+    console.error(
+      `Failed to compute oscillation diff for case "${caseName}":`,
+      e
+    );
+  }
+}
+
 if (cases.length === 0) {
   describe("yaml-cases", () => {
     it("no cases found (add directories to test/integration/cases/)", () => {
@@ -205,6 +247,12 @@ if (cases.length === 0) {
           setMockEnv(env);
 
           const result = await runInMemoryPipeline(env, steps);
+
+          if (!result.converged) {
+            // When the pipeline fails to converge, capture and log the
+            // oscillation between the last two rounds to aid debugging.
+            await logOscillationDiff(c.name, before, steps);
+          }
 
           expect(
             result.converged,
