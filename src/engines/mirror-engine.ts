@@ -31,6 +31,10 @@ export async function buildMirrorOpts(
   );
   if (!destResolved.ok) throw new Error(destResolved.error);
 
+  const allBudgetIds = manager.getAllBudgetIds();
+  // When mirroring to a budget that receives from multiple origins (e.g. alpha gets from beta via gamma),
+  // include all pipeline budgets so we find cross-budget round-trip txs. Only when we have 3+ budgets.
+  const needsCrossBudgetIndex = allBudgetIds.length >= 3 && step.source.budget !== step.destination.budget;
   return {
     sourceBudgetAlias: step.source.budget,
     sourceBudgetId: sourceInfo.budgetId,
@@ -44,6 +48,7 @@ export async function buildMirrorOpts(
     reporter: opts.reporter,
     stepType: "mirror",
     deleteEnabled: step.delete,
+    indexBudgetIds: needsCrossBudgetIndex ? allBudgetIds : undefined,
   };
 }
 
@@ -62,8 +67,10 @@ export function createMirrorEngine(step: MirrorStep): SyncEngine {
 
         if (isABMirrorId(sourceTx.imported_id)) {
           const parsed = parseImportedId(sourceTx.imported_id as string);
-          if (parsed?.budgetId === opts.destBudgetId) {
-            // Round-trip: dest already has it. Use canonical key and imported_id so we match existing.
+          if (parsed) {
+            // Use canonical key so we match existing (same logical origin). Always apply step
+            // invert for amount: hub→personal needs invert (e.g. gamma/PayBeta -2000 → beta/Recv
+            // +2000); personal→hub needs invert (beta/Recv +2000 → gamma/PayBeta -2000).
             const key = `${parsed.txId}:${destAccountId}`;
             desired.set(key, {
               accountId: destAccountId,
@@ -74,7 +81,7 @@ export function createMirrorEngine(step: MirrorStep): SyncEngine {
                 notes: sourceTx.notes ?? undefined,
                 category,
                 cleared: sourceTx.cleared,
-                imported_id: formatImportedId(opts.destBudgetId, parsed.txId),
+                imported_id: formatImportedId(parsed.budgetId, parsed.txId),
               },
             });
             continue;

@@ -26,7 +26,7 @@ describe("indexExistingMirrored", () => {
       account: "dest-acct",
     });
     const result = indexExistingMirrored([tx], BUDGET_ID);
-    expect(result.size).toBe(1);
+    expect(result.size).toBe(2); // parsed.txId + tx.id
     expect(result.get("src-1:dest-acct")).toBe(tx);
   });
 
@@ -51,7 +51,7 @@ describe("indexExistingMirrored", () => {
       account: "dest-acct",
     });
     const result = indexExistingMirrored([tx], "SourceBudget", "DestBudget");
-    expect(result.size).toBe(1);
+    expect(result.size).toBe(2); // parsed.txId + tx.id
     expect(result.get("tx-origin:dest-acct")).toBe(tx);
   });
 
@@ -69,7 +69,7 @@ describe("indexExistingMirrored", () => {
       "SourceBudget",
       "DestBudget"
     );
-    expect(result.size).toBe(2);
+    expect(result.size).toBe(4); // 2 keys per tx (parsed.txId + tx.id)
     expect(result.get("src-1:acct-a")).toBe(txSource);
     expect(result.get("tx-origin:acct-b")).toBe(txDest);
   });

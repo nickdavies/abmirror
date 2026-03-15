@@ -120,6 +120,13 @@ export class BudgetManager {
     return info;
   }
 
+  /** All budget IDs from config (only populated after preflight/download). */
+  getAllBudgetIds(): string[] {
+    return Object.keys(this.config.budgets)
+      .map((a) => this.infos.get(a)?.budgetId)
+      .filter((id): id is string => Boolean(id));
+  }
+
   getOpenAlias(): string | null {
     return this.openAlias;
   }

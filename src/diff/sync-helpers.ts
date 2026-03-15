@@ -11,18 +11,25 @@ import type { ActualTransaction, NewTransaction } from "../selector/types";
 export function indexExistingMirrored(
   destTxs: ActualTransaction[],
   sourceBudgetId: string,
-  destBudgetId?: string
+  destBudgetId?: string,
+  allBudgetIds?: string[]
 ): Map<string, ActualTransaction> {
   const map = new Map<string, ActualTransaction>();
   const budgetIds = new Set([sourceBudgetId]);
   if (destBudgetId !== undefined && destBudgetId !== sourceBudgetId) {
     budgetIds.add(destBudgetId);
   }
+  if (allBudgetIds) {
+    for (const id of allBudgetIds) budgetIds.add(id);
+  }
   for (const tx of destTxs) {
     if (!isABMirrorId(tx.imported_id)) continue;
     const parsed = parseImportedId(tx.imported_id as string);
     if (!parsed || !budgetIds.has(parsed.budgetId)) continue;
     map.set(`${parsed.txId}:${tx.account}`, tx);
+    // Also index by tx.id so round-trip from mirror output matches (mirror uses source tx id,
+    // but split output has imported_id pointing to source checking tx, not itself)
+    map.set(`${tx.id}:${tx.account}`, tx);
   }
   return map;
 }

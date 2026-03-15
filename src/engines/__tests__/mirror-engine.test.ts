@@ -61,14 +61,14 @@ describe("createMirrorEngine", () => {
       expect(desired.has("source-tx-id:dest-acct-id")).toBe(false);
     });
 
-    it("uses normal key when source imported_id points to other budget (not round-trip)", () => {
+    it("uses canonical key when source imported_id points to other budget (same-budget mirror dedup)", () => {
       const engine = createMirrorEngine(baseStep);
       const sourceTx = mkTx("source-tx-id", {
         imported_id: formatImportedId("OtherBudget", "tx-1"),
       });
       const { desired } = engine.propose([sourceTx], baseOpts);
-      expect(desired.has("source-tx-id:dest-acct-id")).toBe(true);
-      expect(desired.has("tx-1:dest-acct-id")).toBe(false);
+      expect(desired.has("tx-1:dest-acct-id")).toBe(true);
+      expect(desired.has("source-tx-id:dest-acct-id")).toBe(false);
     });
 
     it("uses normal key when source has null imported_id", () => {
@@ -123,17 +123,17 @@ describe("createMirrorEngine", () => {
   });
 
   describe("invert mode", () => {
-    it("round-trip with invert: desired tx amount is -sourceTx.amount", () => {
+    it("round-trip with invert: applies step invert (hub negative → personal positive)", () => {
       const step = { ...baseStep, invert: true };
       const engine = createMirrorEngine(step);
       const sourceTx = mkTx("source-id", {
-        amount: 5000,
+        amount: -5000, // hub has negative (expense from joint)
         imported_id: formatImportedId(DEST_BUDGET, "tx-origin"),
       });
       const { desired } = engine.propose([sourceTx], baseOpts);
       const entry = desired.get("tx-origin:dest-acct-id");
       expect(entry).toBeDefined();
-      expect(entry?.tx.amount).toBe(-5000);
+      expect(entry?.tx.amount).toBe(5000); // invert: -(-5000) = +5000 for personal recv
     });
   });
 

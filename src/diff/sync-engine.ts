@@ -32,6 +32,8 @@ export interface EngineOpts {
   deleteEnabled?: boolean;
   /** Split engine only: resolved tag entries with destination_account as ID */
   tagEntries?: Array<[string, { multiplier: number; destination_account: string }]>;
+  /** Mirror only: budget IDs to index for cross-budget round-trip (e.g. beta→alpha via gamma) */
+  indexBudgetIds?: string[];
 }
 
 export interface ProposeResult {
@@ -107,7 +109,8 @@ export async function runSyncEngine(
     const partial = indexExistingMirrored(
       destTxs,
       sourceBudgetId,
-      opts.destBudgetId
+      opts.destBudgetId,
+      opts.indexBudgetIds
     );
     for (const [k, v] of partial) existing.set(k, v);
   }
