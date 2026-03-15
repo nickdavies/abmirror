@@ -49,6 +49,16 @@ describe("selectAccounts", () => {
     const result = selectAccounts(accounts, "a2");
     expect(result.map((a) => a.id)).toEqual(["a2"]);
   });
+
+  it("excludeIds filters out accounts from result", () => {
+    const result = selectAccounts(accounts, "all", new Set(["a1"]));
+    expect(result.map((a) => a.id)).toEqual(["a2"]);
+  });
+
+  it("excludeIds with on-budget excludes dest from source scope", () => {
+    const result = selectAccounts(accounts, "on-budget", new Set(["a1"]));
+    expect(result.map((a) => a.id)).toEqual([]);
+  });
 });
 
 describe("selectTransactions", () => {

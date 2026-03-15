@@ -34,6 +34,8 @@ export interface EngineOpts {
   tagEntries?: Array<[string, { multiplier: number; destination_account: string }]>;
   /** Mirror only: budget IDs to index for cross-budget round-trip (e.g. beta→alpha via gamma) */
   indexBudgetIds?: string[];
+  /** Split only: when source spec is broad, exclude these account IDs from source scope */
+  excludeAccountIds?: Set<string>;
 }
 
 export interface ProposeResult {
@@ -75,7 +77,11 @@ export async function runSyncEngine(
     throw new Error(srcResolved.error);
   }
 
-  const selectedAccounts = selectAccounts(allSourceAccounts, srcResolved.spec!);
+  const selectedAccounts = selectAccounts(
+    allSourceAccounts,
+    srcResolved.spec!,
+    opts.excludeAccountIds
+  );
   const selector = {
     accounts: opts.sourceAccountsSpec,
     requiredTags: opts.requiredTags,

@@ -44,6 +44,12 @@ export async function buildSplitOpts(
 
   const destAccountIds = [...new Set(tagEntries.map(([, a]) => a.destination_account))];
 
+  const isBroadSpec =
+    step.source.accounts === "all" ||
+    step.source.accounts === "on-budget" ||
+    step.source.accounts === "off-budget";
+  const excludeAccountIds = isBroadSpec ? new Set(destAccountIds) : undefined;
+
   return {
     sourceBudgetAlias: step.budget,
     sourceBudgetId: budgetInfo.budgetId,
@@ -58,6 +64,7 @@ export async function buildSplitOpts(
     stepIndex: opts.stepIndex,
     stepType: "split",
     tagEntries,
+    excludeAccountIds,
   };
 }
 

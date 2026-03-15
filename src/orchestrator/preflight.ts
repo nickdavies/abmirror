@@ -193,26 +193,7 @@ async function validateSplitStep(
     return;
   }
 
-  const selectedSourceAccounts = selectAccounts(accounts, srcResult.spec!);
-  if (reporter && selectedSourceAccounts.length === 0) {
-    reporter.warn("preflight.emptySourceScope", {
-      stepIndex,
-      stepType: "split",
-      spec: step.source.accounts,
-    });
-  }
-  for (const a of selectedSourceAccounts) {
-    if (a.closed && reporter) {
-      reporter.warn("preflight.closedAccountInScope", {
-        stepIndex,
-        budget: step.budget,
-        accountName: a.name,
-        accountId: a.id,
-      });
-    }
-  }
-
-  // Validate destination accounts referenced in tag actions
+  // Resolve destination accounts first (needed for broad-spec exclude)
   const destIds = new Set<string>();
   for (const [tag, action] of Object.entries(step.tags)) {
     const destResult = resolveAccountId(
@@ -236,7 +217,31 @@ async function validateSplitStep(
     }
   }
 
-  // Split source and destination must not overlap
+  const isBroadSpec =
+    step.source.accounts === "all" ||
+    step.source.accounts === "on-budget" ||
+    step.source.accounts === "off-budget";
+  const excludeIds = isBroadSpec ? destIds : undefined;
+  const selectedSourceAccounts = selectAccounts(accounts, srcResult.spec!, excludeIds);
+  if (reporter && selectedSourceAccounts.length === 0) {
+    reporter.warn("preflight.emptySourceScope", {
+      stepIndex,
+      stepType: "split",
+      spec: step.source.accounts,
+    });
+  }
+  for (const a of selectedSourceAccounts) {
+    if (a.closed && reporter) {
+      reporter.warn("preflight.closedAccountInScope", {
+        stepIndex,
+        budget: step.budget,
+        accountName: a.name,
+        accountId: a.id,
+      });
+    }
+  }
+
+  // Split source and destination must not overlap (when explicit spec, dest in source = error)
   const sourceIds = new Set(selectedSourceAccounts.map((a) => a.id));
   if (hasSourceDestOverlap(sourceIds, destIds)) {
     errors.push(

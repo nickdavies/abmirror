@@ -102,8 +102,36 @@ describe("runPreflight", () => {
     vi.mocked(actual.getAccounts).mockResolvedValue(mockAccounts);
   });
 
-  it("fails when split destination account is in source scope", async () => {
+  it("passes when split destination is in broad source scope (auto-excluded)", async () => {
     const config = createOverlapConfig();
+    const manager = createMockManager();
+
+    const result = await runPreflight(config, manager);
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("fails when split destination is in explicit source accounts", async () => {
+    const config: Config = {
+      server: { url: "http://localhost:5006" },
+      dataDir: "/tmp/ab-mirror-test",
+      budgets: { alpha: { syncId: "sync-alpha", encrypted: false } },
+      lookbackDays: 60,
+      pipeline: [
+        {
+          type: "split",
+          budget: "alpha",
+          source: { accounts: ["Checking", "Recv"] },
+          tags: {
+            "#50/50": {
+              multiplier: -0.5,
+              destination_account: "Recv",
+            },
+          },
+        } satisfies SplitStep,
+      ],
+    };
     const manager = createMockManager();
 
     const result = await runPreflight(config, manager);

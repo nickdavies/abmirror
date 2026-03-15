@@ -932,9 +932,43 @@ async function main(): Promise<void> {
   };
   writeFileSync(overlapConfigPath, stringify(overlapConfig), "utf-8");
   const overlapResult = runValidate(overlapConfigPath, fixture);
-  assert(overlapResult.exitCode !== 0, "validate should fail when split destination is in source scope");
+  assert(overlapResult.exitCode === 0, "validate should pass when split dest is in broad scope (auto-excluded)");
+
+  const overlapExplicitConfigPath = path.join(
+    path.dirname(fixture.configPath),
+    ".tmp-overlap-explicit-config.yaml"
+  );
+  const overlapExplicitConfig = {
+    server: { url: SERVER_URL },
+    dataDir: fixture.binaryDataDir,
+    budgets: {
+      alpha: { syncId: fixture.budgets.alpha.syncId, encrypted: false },
+    },
+    lookbackDays: 3650,
+    pipeline: [
+      {
+        type: "split",
+        budget: "alpha",
+        source: {
+          accounts: [fixture.budgets.alpha.accountIds.Checking, fixture.budgets.alpha.accountIds.Recv],
+        },
+        tags: {
+          "#50/50": {
+            multiplier: -0.5,
+            destination_account: fixture.budgets.alpha.accountIds.Recv,
+          },
+        },
+      },
+    ],
+  };
+  writeFileSync(overlapExplicitConfigPath, stringify(overlapExplicitConfig), "utf-8");
+  const overlapExplicitResult = runValidate(overlapExplicitConfigPath, fixture);
   assert(
-    overlapResult.stderr.includes("split destination account is in source scope"),
+    overlapExplicitResult.exitCode !== 0,
+    "validate should fail when split destination is in explicit source accounts"
+  );
+  assert(
+    overlapExplicitResult.stderr.includes("split destination account is in source scope"),
     "stderr should include overlap error message"
   );
 

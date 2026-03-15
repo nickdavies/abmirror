@@ -9,18 +9,24 @@ import type { ActualAccount, ActualTransaction, SelectorConfig } from "./types";
 
 export function selectAccounts(
   accounts: ActualAccount[],
-  spec: AccountsSpec
+  spec: AccountsSpec,
+  excludeIds?: Set<string>
 ): ActualAccount[] {
   const open = accounts.filter((a) => !a.closed);
-  if (spec === "all") return open;
-  if (spec === "on-budget") return open.filter((a) => !a.offbudget);
-  if (spec === "off-budget") return open.filter((a) => a.offbudget);
-  if (Array.isArray(spec)) {
+  let selected: ActualAccount[];
+  if (spec === "all") selected = open;
+  else if (spec === "on-budget") selected = open.filter((a) => !a.offbudget);
+  else if (spec === "off-budget") selected = open.filter((a) => a.offbudget);
+  else if (Array.isArray(spec)) {
     const ids = new Set(spec);
-    return accounts.filter((a) => ids.has(a.id));
+    selected = accounts.filter((a) => ids.has(a.id));
+  } else {
+    selected = accounts.filter((a) => a.id === spec);
   }
-  // Single account ID string
-  return accounts.filter((a) => a.id === spec);
+  if (excludeIds?.size) {
+    selected = selected.filter((a) => !excludeIds.has(a.id));
+  }
+  return selected;
 }
 
 function matchesSelector(
