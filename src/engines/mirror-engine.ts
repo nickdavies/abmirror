@@ -19,15 +19,9 @@ export async function buildMirrorOpts(
   },
   manager: BudgetManager
 ): Promise<EngineOpts> {
-  const sourceInfo = await manager.open(step.source.budget);
-  const allSourceAccounts = (await actual.getAccounts()) as import("../selector/types").ActualAccount[];
-  const srcResolved = resolveAccountsSpec(
-    allSourceAccounts,
-    step.source.accounts,
-    step.source.budget
-  );
-  if (!srcResolved.ok) throw new Error(srcResolved.error);
-
+  // Use cached budget IDs from preflight; only open dest to resolve account.
+  // Opening both budgets caused extra syncs that can fail during pipeline (sync_engine).
+  const sourceInfo = manager.getInfo(step.source.budget);
   const destInfo = await manager.open(step.destination.budget);
   const destAccounts = (await actual.getAccounts()) as import("../selector/types").ActualAccount[];
   const destResolved = resolveAccountId(

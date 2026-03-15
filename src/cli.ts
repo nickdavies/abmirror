@@ -22,6 +22,9 @@ import { enhanceDownloadError } from "./util/errors";
 
 const program = new Command();
 
+/** Set by run/validate when --debug-sync is passed; used by top-level catch for error details. */
+let debugSyncRequested = false;
+
 program
   .name("ab-mirror")
   .description("Cross-budget transaction sync and split tool for Actual Budget")
@@ -34,11 +37,17 @@ program
   )
   .requiredOption("--config <path>", "Path to YAML config file")
   .option("--verbose", "Show verbose infrastructure messages (sync, breadcrumbs, etc.)")
-  .action(async (opts: { config: string; verbose?: boolean }) => {
+  .option("--debug-sync", "Log each sync/download with a counter (for debugging)")
+  .action(async (opts: { config: string; verbose?: boolean; debugSync?: boolean }) => {
+    debugSyncRequested = opts.debugSync ?? false;
     const config = loadConfig(opts.config);
     const secrets = loadSecrets(config);
     try {
-      await validateConfig(config, { secrets, verbose: opts.verbose });
+      await validateConfig(config, {
+        secrets,
+        verbose: opts.verbose,
+        debugSync: opts.debugSync,
+      });
     } catch (err) {
       throw enhanceDownloadError(err, config.server.url);
     }
@@ -113,7 +122,9 @@ program
   .option("--dry-run", "Validate and simulate execution without writing anything")
   .option("--step <n>", "Run only the pipeline step at this 1-based index", parseInt)
   .option("--verbose", "Show verbose infrastructure messages (sync, breadcrumbs, etc.)")
-  .action(async (opts: { config: string; dryRun?: boolean; step?: number; verbose?: boolean }) => {
+  .option("--debug-sync", "Log each sync/download with a counter (for debugging)")
+  .action(async (opts: { config: string; dryRun?: boolean; step?: number; verbose?: boolean; debugSync?: boolean }) => {
+    debugSyncRequested = opts.debugSync ?? false;
     const config = loadConfig(opts.config);
     const secrets = loadSecrets(config);
 
@@ -136,6 +147,7 @@ program
         dryRun: opts.dryRun ?? false,
         stepIndex,
         verbose: opts.verbose,
+        debugSync: opts.debugSync,
       });
     } catch (err) {
       throw enhanceDownloadError(err, config.server.url);
@@ -143,7 +155,14 @@ program
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {
+  const rawMsg = err instanceof Error ? err.message : String(err);
   const enhanced = enhanceDownloadError(err);
-  console.error("Fatal error:", enhanced instanceof Error ? enhanced.message : enhanced);
+  const msg = enhanced instanceof Error ? enhanced.message : String(enhanced);
+  console.error("Fatal error:", msg || "(no message)");
+  if (debugSyncRequested) {
+    console.error("[debug] raw error message:", rawMsg || "(empty)");
+    if (err instanceof Error && err.stack) console.error("[debug] stack:", err.stack);
+    if (err instanceof Error && err.cause) console.error("[debug] cause:", err.cause);
+  }
   process.exit(1);
 });

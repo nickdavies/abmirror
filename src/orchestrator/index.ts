@@ -20,12 +20,14 @@ export interface RunOptions {
   stepIndex?: number;
   /** Show verbose infrastructure messages from Actual API. */
   verbose?: boolean;
+  /** Log each sync/download with a counter (for debugging). */
+  debugSync?: boolean;
 }
 
 export async function runPipeline(opts: RunOptions): Promise<void> {
-  const { config, secrets, dryRun = false, stepIndex, verbose = false } = opts;
+  const { config, secrets, dryRun = false, stepIndex, verbose = false, debugSync = false } = opts;
 
-  const manager = new BudgetManager(config, secrets);
+  const manager = new BudgetManager(config, secrets, { debugSync });
   await manager.init({ verbose });
 
   const startTime = Date.now();
@@ -90,6 +92,11 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
     // Implicit final sync after all steps
     console.log("\nFinal sync...");
     await manager.syncAll();
+
+    const counts = manager.getDebugCounts();
+    if (debugSync) {
+      console.error(`[debug] pipeline complete: ${counts.sync} syncs, ${counts.download} downloads`);
+    }
   } catch (err) {
     success = false;
     throw err;
@@ -102,10 +109,10 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
 /** Validate-only: same as runPipeline but stops after preflight. */
 export async function validateConfig(
   config: Config,
-  opts: { secrets: Secrets; verbose?: boolean }
+  opts: { secrets: Secrets; verbose?: boolean; debugSync?: boolean }
 ): Promise<void> {
-  const { secrets, verbose = false } = opts;
-  const manager = new BudgetManager(config, secrets);
+  const { secrets, verbose = false, debugSync = false } = opts;
+  const manager = new BudgetManager(config, secrets, { debugSync });
   await manager.init({ verbose });
 
   const reporter = createRunReporter(config);
@@ -116,6 +123,10 @@ export async function validateConfig(
       console.error("Validation failed:");
       for (const err of result.errors) {
         console.error(`  - ${err}`);
+      }
+      if (debugSync) {
+        const counts = manager.getDebugCounts();
+        console.error(`[debug] validate preflight: ${counts.sync} syncs, ${counts.download} downloads`);
       }
       process.exit(1);
     }

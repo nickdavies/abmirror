@@ -78,7 +78,10 @@ export async function runPreflight(
     try {
       await manager.download(alias);
     } catch (err) {
-      errors.push(`Failed to download budget "${alias}": ${String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      const cause = err instanceof Error && err.cause ? ` (cause: ${String(err.cause)})` : "";
+      const stack = err instanceof Error && err.stack ? `\n  ${err.stack.split("\n").slice(1, 4).join("\n  ")}` : "";
+      errors.push(`Failed to download budget "${alias}": ${msg}${cause}${stack}`);
     }
   }
 

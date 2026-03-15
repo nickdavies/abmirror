@@ -220,7 +220,29 @@ async function getAccountTransactions(
   return txs as TxLike[];
 }
 
-function runMirrorBinary(fixture: Fixture): void {
+function runMirrorBinary(fixture: Fixture, debugSync = false): void {
+  if (debugSync) {
+    const r = spawnSync(
+      "node",
+      ["dist/cli.js", "run", "--config", fixture.configPath, "--debug-sync"],
+      {
+        cwd: fixture.rootDir,
+        encoding: "utf-8",
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          AB_MIRROR_KEY_GAMMA: fixture.gammaPassword,
+        },
+      }
+    );
+    const err = (r.stderr ?? "").split("\n").filter((l) => l.includes("[sync #") || l.includes("[download #") || l.includes("[debug] pipeline"));
+    if (err.length > 0) console.error("Pipeline sync/download trace:\n" + err.join("\n"));
+    if (r.status !== 0) {
+      throw new Error(`Pipeline failed: ${r.stderr ?? r.stdout ?? "unknown"}`);
+    }
+    process.stdout.write(r.stdout ?? "");
+    return;
+  }
   execSync(`node dist/cli.js run --config "${fixture.configPath}"`, {
     cwd: fixture.rootDir,
     stdio: "inherit",
@@ -231,8 +253,14 @@ function runMirrorBinary(fixture: Fixture): void {
   });
 }
 
-function runValidate(configPath: string, fixture: Fixture): { exitCode: number; stderr: string } {
-  const result = spawnSync("node", ["dist/cli.js", "validate", "--config", configPath], {
+function runValidate(
+  configPath: string,
+  fixture: Fixture,
+  debugSync = false
+): { exitCode: number; stderr: string; stdout: string } {
+  const args = ["dist/cli.js", "validate", "--config", configPath];
+  if (debugSync) args.push("--debug-sync");
+  const result = spawnSync("node", args, {
     cwd: fixture.rootDir,
     encoding: "utf-8",
     env: {
@@ -244,6 +272,7 @@ function runValidate(configPath: string, fixture: Fixture): { exitCode: number; 
   return {
     exitCode: result.status ?? (result.signal ? 1 : 0),
     stderr: result.stderr ?? "",
+    stdout: result.stdout ?? "",
   };
 }
 
@@ -731,41 +760,6 @@ async function main(): Promise<void> {
     "source integrity after run 4"
   );
 
-  console.log("Testing duplicate account name failure (actionable dump)...");
-  const dupConfigPath = path.join(path.dirname(fixture.configPath), ".tmp-dup-config.yaml");
-  const dupConfig = {
-    server: { url: SERVER_URL },
-    dataDir: fixture.binaryDataDir,
-    budgets: {
-      delta: { syncId: fixture.budgets.delta.syncId, encrypted: false },
-    },
-    lookbackDays: 3650,
-    pipeline: [
-      {
-        type: "split",
-        budget: "delta",
-        source: { accounts: "all", requiredTags: [] },
-        tags: {
-          "#x": {
-            multiplier: 1,
-            destination_account: fixture.budgets.delta.accountIds.Dup1,
-          },
-        },
-      },
-    ],
-  };
-  writeFileSync(dupConfigPath, stringify(dupConfig), "utf-8");
-  const dupResult = runValidate(dupConfigPath, fixture);
-  assert(dupResult.exitCode !== 0, "validate should fail when budget has duplicate account names");
-  assert(
-    dupResult.stderr.includes('Duplicate account name "Dup"'),
-    "stderr should include duplicate name message"
-  );
-  assert(
-    dupResult.stderr.includes("id:") && dupResult.stderr.includes("on-budget") && dupResult.stderr.includes("off-budget"),
-    "stderr should include actionable dump with ids and basic info"
-  );
-
   console.log("Testing account name resolution in config...");
   const nameConfigPath = path.join(path.dirname(fixture.configPath), ".tmp-name-config.yaml");
   const nameConfig = {
@@ -835,6 +829,41 @@ async function main(): Promise<void> {
   assert(
     overlapResult.stderr.includes("split destination account is in source scope"),
     "stderr should include overlap error message"
+  );
+
+  console.log("Testing duplicate account name failure (actionable dump)...");
+  const dupConfigPath = path.join(path.dirname(fixture.configPath), ".tmp-dup-config.yaml");
+  const dupConfig = {
+    server: { url: SERVER_URL },
+    dataDir: fixture.binaryDataDir,
+    budgets: {
+      delta: { syncId: fixture.budgets.delta.syncId, encrypted: false },
+    },
+    lookbackDays: 3650,
+    pipeline: [
+      {
+        type: "split",
+        budget: "delta",
+        source: { accounts: "all", requiredTags: [] },
+        tags: {
+          "#x": {
+            multiplier: 1,
+            destination_account: fixture.budgets.delta.accountIds.Dup1,
+          },
+        },
+      },
+    ],
+  };
+  writeFileSync(dupConfigPath, stringify(dupConfig), "utf-8");
+  const dupResult = runValidate(dupConfigPath, fixture);
+  assert(dupResult.exitCode !== 0, "validate should fail when budget has duplicate account names");
+  assert(
+    dupResult.stderr.includes('Duplicate account name "Dup"'),
+    "stderr should include duplicate name message"
+  );
+  assert(
+    dupResult.stderr.includes("id:") && dupResult.stderr.includes("on-budget") && dupResult.stderr.includes("off-budget"),
+    "stderr should include actionable dump with ids and basic info"
   );
 
   console.log("Blackbox integration test passed.");
