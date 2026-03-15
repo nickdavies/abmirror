@@ -36,4 +36,3 @@ pipeline:
   - type: mirror
     source: { budget: main, accounts: ["<account-id>"] }
     destination: { budget: shared, account: "<account-id>" }
-    copyMirrored: true

@@ -10,7 +10,7 @@ import type { SplitStep, TagAction } from "../config/schema";
 import type { BudgetManager } from "../client/budget-manager";
 import type { ActualTransaction, NewTransaction } from "../selector/types";
 import { parseTags } from "../util/tags";
-import { formatImportedId, isABMirrorId } from "../util/imported-id";
+import { formatImportedId } from "../util/imported-id";
 import { selectTransactions } from "../selector/index";
 import { computeDiff } from "../diff/sync-helpers";
 
@@ -43,14 +43,13 @@ export function computeSplitDiff(
   tagEntries: Array<[string, TagAction]>,
   existingBySourceId: Map<string, ActualTransaction>,
   budgetId: string,
-  opts: { splitMirrored?: boolean; onWarn?: OnWarn; stepIndex?: number } = {}
+  opts: { onWarn?: OnWarn; stepIndex?: number } = {}
 ): SplitDiff {
-  const { splitMirrored = false, onWarn, stepIndex = 0 } = opts;
+  const { onWarn, stepIndex = 0 } = opts;
   const desired = new Map<string, { accountId: string; tx: NewTransaction }>();
   let scopeMatchNoActionTagCount = 0;
 
   for (const tx of selectTransactions(sourceTxs, selector)) {
-    if (!splitMirrored && isABMirrorId(tx.imported_id)) continue;
 
     const { tags: txTags } = parseTags(tx.notes);
     const matchingTags = tagEntries.filter(([tag]) =>

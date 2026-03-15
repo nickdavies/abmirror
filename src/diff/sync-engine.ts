@@ -3,7 +3,6 @@
  * and the library handles read, filter, diff, apply, delete.
  */
 import * as actual from "@actual-app/api";
-import { isABMirrorId } from "../util/imported-id";
 import { selectAccounts, selectTransactions } from "../selector/index";
 import { resolveAccountsSpec } from "../util/account-resolver";
 import type { BudgetManager } from "../client/budget-manager";
@@ -21,7 +20,6 @@ export interface EngineOpts {
   sourceBudgetId: string;
   sourceAccountsSpec: AccountsSpec;
   requiredTags?: string[];
-  includeMirrored: boolean;
   destBudgetAlias: string;
   destBudgetId: string;
   destAccountIds: string[];
@@ -87,10 +85,8 @@ export async function runSyncEngine(
     sourceTxFlat.push(...(txs as ActualTransaction[]));
   }
 
-  // Filter by selector + includeMirrored (common lib)
   const filteredSourceTxs: ActualTransaction[] = [];
   for (const tx of selectTransactions(sourceTxFlat, selector)) {
-    if (!opts.includeMirrored && isABMirrorId(tx.imported_id)) continue;
     filteredSourceTxs.push(tx);
   }
 
@@ -108,7 +104,11 @@ export async function runSyncEngine(
       startDate,
       endDate
     )) as ActualTransaction[];
-    const partial = indexExistingMirrored(destTxs, sourceBudgetId);
+    const partial = indexExistingMirrored(
+      destTxs,
+      sourceBudgetId,
+      opts.destBudgetId
+    );
     for (const [k, v] of partial) existing.set(k, v);
   }
 

@@ -60,7 +60,7 @@ function createOverlapConfig(): Config {
       {
         type: "split",
         budget: "alpha",
-        source: { accounts: "all", splitMirrored: false },
+        source: { accounts: "all" },
         tags: {
           "#50/50": {
             multiplier: -0.5,
@@ -84,7 +84,7 @@ function createNonOverlapConfig(): Config {
       {
         type: "split",
         budget: "alpha",
-        source: { accounts: ["Checking"], splitMirrored: false },
+        source: { accounts: ["Checking"] },
         tags: {
           "#50/50": {
             multiplier: -0.5,
@@ -173,7 +173,7 @@ describe("runPreflight", () => {
         {
           type: "split",
           budget: "alpha",
-          source: { accounts: "all", splitMirrored: false },
+          source: { accounts: "all" },
           tags: {
             "#50/50": {
               multiplier: -0.5,

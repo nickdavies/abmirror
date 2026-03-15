@@ -62,7 +62,6 @@ pipeline:
   - type: mirror
     source: { budget: main, accounts: ["<account-id>"] }
     destination: { budget: shared, account: "<account-id>" }
-    copyMirrored: true
 ```
 
 ### 4. Set environment variables
@@ -149,7 +148,7 @@ npm run test:integration
 
 **Split step**: Splits tagged transactions from source accounts into destination accounts based on tag multipliers. Tags are always exclusive: when a transaction matches multiple action tags, it is skipped (reported via notifier). For multiple destinations, add multiple split steps.
 
-**Mirror step**: Copies transactions from source budget/accounts to a destination budget/account. Options: `invert`, `delete`, `copyMirrored`, `categoryMapping`.
+**Mirror step**: Copies transactions from source budget/accounts to a destination budget/account. Options: `invert`, `delete`, `categoryMapping`.
 
 ## Known limitation: Config changes can strand transactions
 

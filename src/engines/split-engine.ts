@@ -49,7 +49,6 @@ export async function buildSplitOpts(
     sourceBudgetId: budgetInfo.budgetId,
     sourceAccountsSpec: step.source.accounts,
     requiredTags: step.source.requiredTags,
-    includeMirrored: step.source.splitMirrored ?? false,
     destBudgetAlias: step.budget,
     destBudgetId: budgetInfo.budgetId,
     destAccountIds,

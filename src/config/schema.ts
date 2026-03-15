@@ -24,7 +24,6 @@ export const SplitStepSchema = z.object({
   source: z.object({
     accounts: AccountsSpecSchema.default("all"),
     requiredTags: z.array(z.string().min(1)).optional(),
-    splitMirrored: z.boolean().default(false),
   }),
   tags: z.record(z.string().min(1), TagActionSchema),
 });
@@ -42,7 +41,6 @@ export const MirrorStepSchema = z.object({
   }),
   invert: z.boolean().default(false),
   delete: z.boolean().default(false),
-  copyMirrored: z.boolean().default(false),
   categoryMapping: z.record(z.string(), z.string()).optional(),
 });
 

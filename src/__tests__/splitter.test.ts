@@ -86,29 +86,12 @@ describe("computeSplitDiff", () => {
     expect(diff.toAdd[0]?.tx.amount).toBe(1667);
   });
 
-  it("skips ABMirror transactions by default", () => {
+  it("includes ABMirror transactions", () => {
     const tx = mkTx("t1", {
       notes: "#50/50",
       imported_id: "ABMirror:some-budget:t1",
     });
     const diff = computeSplitDiff([tx], selector, tagEntries, new Map(), BUDGET_ID);
-    expect(diff.toAdd).toHaveLength(0);
-    expect(diff.toUpdate).toHaveLength(0);
-  });
-
-  it("includes ABMirror when splitMirrored true", () => {
-    const tx = mkTx("t1", {
-      notes: "#50/50",
-      imported_id: "ABMirror:some-budget:t1",
-    });
-    const diff = computeSplitDiff(
-      [tx],
-      selector,
-      tagEntries,
-      new Map(),
-      BUDGET_ID,
-      { splitMirrored: true }
-    );
     expect(diff.toAdd).toHaveLength(1);
     expect(diff.toAdd[0]?.tx.amount).toBe(5000);
   });

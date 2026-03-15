@@ -10,13 +10,18 @@ import type { ActualTransaction, NewTransaction } from "../selector/types";
 
 export function indexExistingMirrored(
   destTxs: ActualTransaction[],
-  budgetId: string
+  sourceBudgetId: string,
+  destBudgetId?: string
 ): Map<string, ActualTransaction> {
   const map = new Map<string, ActualTransaction>();
+  const budgetIds = new Set([sourceBudgetId]);
+  if (destBudgetId !== undefined && destBudgetId !== sourceBudgetId) {
+    budgetIds.add(destBudgetId);
+  }
   for (const tx of destTxs) {
     if (!isABMirrorId(tx.imported_id)) continue;
     const parsed = parseImportedId(tx.imported_id as string);
-    if (parsed?.budgetId !== budgetId) continue;
+    if (!parsed || !budgetIds.has(parsed.budgetId)) continue;
     map.set(`${parsed.txId}:${tx.account}`, tx);
   }
   return map;

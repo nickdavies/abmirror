@@ -3,7 +3,7 @@
  * 1:1 copy (or invert), single destination, optional category mapping.
  */
 import * as actual from "@actual-app/api";
-import { formatImportedId } from "../util/imported-id";
+import { formatImportedId, isABMirrorId, parseImportedId } from "../util/imported-id";
 import { resolveAccountsSpec, resolveAccountId } from "../util/account-resolver";
 import type { MirrorStep } from "../config/schema";
 import type { ActualTransaction, NewTransaction } from "../selector/types";
@@ -36,7 +36,6 @@ export async function buildMirrorOpts(
     sourceBudgetId: sourceInfo.budgetId,
     sourceAccountsSpec: step.source.accounts,
     requiredTags: step.source.requiredTags,
-    includeMirrored: step.copyMirrored,
     destBudgetAlias: step.destination.budget,
     destBudgetId: destInfo.budgetId,
     destAccountIds: [destResolved.id],
@@ -60,6 +59,27 @@ export function createMirrorEngine(step: MirrorStep): SyncEngine {
           step.categoryMapping && sourceTx.category
             ? (step.categoryMapping[sourceTx.category] ?? undefined)
             : undefined;
+
+        if (isABMirrorId(sourceTx.imported_id)) {
+          const parsed = parseImportedId(sourceTx.imported_id as string);
+          if (parsed?.budgetId === opts.destBudgetId) {
+            // Round-trip: dest already has it. Use canonical key and imported_id so we match existing.
+            const key = `${parsed.txId}:${destAccountId}`;
+            desired.set(key, {
+              accountId: destAccountId,
+              tx: {
+                date: sourceTx.date,
+                amount,
+                payee_name: sourceTx.payee_name ?? undefined,
+                notes: sourceTx.notes ?? undefined,
+                category,
+                cleared: sourceTx.cleared,
+                imported_id: formatImportedId(opts.destBudgetId, parsed.txId),
+              },
+            });
+            continue;
+          }
+        }
 
         const key = `${sourceTx.id}:${destAccountId}`;
         desired.set(key, {
