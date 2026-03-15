@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-COMPOSE_FILE="${ROOT_DIR}/test/integration/docker-compose.yml"
+COMPOSE_FILE="${ROOT_DIR}/test/e2e/docker-compose.yml"
 SERVER_URL="http://localhost:5007"
 HEALTH_TIMEOUT_SECS=30
 SERVER_PASSWORD="test"
-ACTUAL_ENV_DATA_DIR="${ROOT_DIR}/test/integration/.tmp-actual-data"
+ACTUAL_ENV_DATA_DIR="${ROOT_DIR}/test/e2e/.tmp-actual-data"
 
 MODE=""
 CONTAINER_NAME="ab-mirror-it-actual-server"
@@ -69,6 +69,7 @@ echo "Building ab-mirror..."
 (cd "${ROOT_DIR}" && npm run build)
 
 echo "Running blackbox integration test..."
-(cd "${ROOT_DIR}" && npx tsx test/integration/integration-test.ts)
+(cd "${ROOT_DIR}" && npx tsx test/e2e/integration-test.ts)
 
 echo "Integration test completed."
+

@@ -10,7 +10,7 @@
     "build": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "test:integration": "bash test/integration/run.sh"
+    "test:e2e": "bash test/e2e/run.sh"
   },
   "dependencies": {
     "@actual-app/api": "^26.3.0",

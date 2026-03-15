@@ -170,7 +170,9 @@ function assertSnapshotsEqual(actualSnapshot: SnapshotTx[], expected: SnapshotTx
 }
 
 /** Content-only for idempotency (split delete/recreate changes ids). */
-function toContentSnapshot(txs: SnapshotTx[]): Array<Omit<SnapshotTx, "id"> & { subs: Array<Omit<SnapshotTx["subs"][0], "id">> }> {
+function toContentSnapshot(
+  txs: SnapshotTx[]
+): Array<Omit<SnapshotTx, "id"> & { subs: Array<Omit<SnapshotTx["subs"][0], "id">> }> {
   return txs
     .map((t) => {
       const { id: _id, ...rest } = t;
@@ -1014,3 +1016,4 @@ main().catch((err: unknown) => {
   console.error("Blackbox integration test failed:", err);
   process.exit(1);
 });
+

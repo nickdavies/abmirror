@@ -5,3 +5,4 @@ services:
       - "5007:5006"
     tmpfs:
       - /data
+
