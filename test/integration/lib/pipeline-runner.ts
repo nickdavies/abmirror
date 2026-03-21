@@ -115,7 +115,8 @@ function buildMirrorOptsInMemory(
     lookbackDays: LOOKBACK_DAYS,
     dryRun: false,
     stepType: "mirror",
-    deleteEnabled: step.delete,
+    deleteEnabled: step.delete ?? false,
+    updateFields: step.updateFields ?? false,
     globalTxIndex,
     rootTxIndex,
   };
@@ -163,6 +164,8 @@ function buildSplitOptsInMemory(
     lookbackDays: LOOKBACK_DAYS,
     dryRun: false,
     stepType: "split",
+    deleteEnabled: step.delete ?? false,
+    updateFields: step.updateFields ?? false,
     tagEntries,
     excludeAccountIds,
     defaultAction,

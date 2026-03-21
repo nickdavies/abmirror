@@ -12,6 +12,7 @@
  * All errors are collected and reported together.
  */
 import * as actual from "@actual-app/api";
+import { q, aqlQuery } from "@actual-app/api";
 import type { AccountsSpec, Config, MirrorStep, SplitStep } from "../config/schema";
 import { selectAccounts } from "../selector/index";
 import type { BudgetManager } from "../client/budget-manager";
@@ -140,6 +141,16 @@ async function getAccountsForBudget(
   return (await actual.getAccounts()) as ActualAccount[];
 }
 
+/** Returns IDs of accounts in the currently-open budget that have bank sync enabled. */
+async function getBankSyncedAccountIds(): Promise<Set<string>> {
+  const { data } = (await aqlQuery(
+    q("accounts")
+      .select(["id", "account_sync_source"])
+      .filter({ account_sync_source: { $ne: null } })
+  )) as { data: Array<{ id: string; account_sync_source: string }> };
+  return new Set(data.map((a) => a.id));
+}
+
 async function getCategoriesForBudget(
   alias: string,
   manager: BudgetManager
@@ -246,6 +257,19 @@ async function validateSplitStep(
     }
   }
 
+  // Check for bank-synced destination accounts
+  const bankSynced = await getBankSyncedAccountIds();
+  for (const id of destIds) {
+    if (bankSynced.has(id)) {
+      const name = accounts.find((a) => a.id === id)?.name ?? id;
+      errors.push(
+        `${label}: destination account "${name}" has bank sync enabled — ` +
+          `bank sync will overwrite imported_id and break ABMirror tracking. ` +
+          `Unlink bank sync from this account in Actual before running ABMirror`
+      );
+    }
+  }
+
   const isBroadSpec =
     step.source.accounts === "all" ||
     step.source.accounts === "on-budget" ||
@@ -259,17 +283,6 @@ async function validateSplitStep(
       spec: step.source.accounts,
     });
   }
-  for (const a of selectedSourceAccounts) {
-    if (a.closed && reporter) {
-      reporter.warn("preflight.closedAccountInScope", {
-        stepIndex,
-        budget: step.budget,
-        accountName: a.name,
-        accountId: a.id,
-      });
-    }
-  }
-
   // Split source and destination must not overlap (when explicit spec, dest in source = error)
   const sourceIds = new Set(selectedSourceAccounts.map((a) => a.id));
   if (hasSourceDestOverlap(sourceIds, destIds)) {
@@ -320,16 +333,6 @@ async function validateMirrorStep(
       spec: step.source.accounts,
     });
   }
-  for (const a of selectedSourceAccounts) {
-    if (a.closed && reporter) {
-      reporter.warn("preflight.closedAccountInScope", {
-        stepIndex,
-        budget: sourceAlias,
-        accountName: a.name,
-        accountId: a.id,
-      });
-    }
-  }
 
   // Resolve destination account
   const destResult = resolveAccountId(
@@ -349,6 +352,17 @@ async function validateMirrorStep(
       accountName: destAccount.name,
       accountId: destAccount.id,
     });
+  }
+
+  // Check for bank-synced destination account
+  const destBankSynced = await getBankSyncedAccountIds();
+  if (destBankSynced.has(destResult.id)) {
+    const name = destAccount?.name ?? destResult.id;
+    errors.push(
+      `${label}: destination account "${name}" has bank sync enabled — ` +
+        `bank sync will overwrite imported_id and break ABMirror tracking. ` +
+          `Unlink bank sync from this account in Actual before running ABMirror`
+    );
   }
 
   // Same-budget: source accounts and destination must not overlap

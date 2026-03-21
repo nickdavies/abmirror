@@ -18,6 +18,7 @@ export async function buildMirrorOpts(
     reporter?: EngineOpts["reporter"];
     globalTxIndex?: EngineOpts["globalTxIndex"];
     rootTxIndex?: EngineOpts["rootTxIndex"];
+    maxChangesPerStep?: number;
   },
   manager: BudgetManager
 ): Promise<EngineOpts> {
@@ -46,8 +47,10 @@ export async function buildMirrorOpts(
     reporter: opts.reporter,
     stepType: "mirror",
     deleteEnabled: step.delete,
+    updateFields: step.updateFields,
     globalTxIndex: opts.globalTxIndex,
     rootTxIndex: opts.rootTxIndex,
+    maxChangesPerStep: opts.maxChangesPerStep,
   };
 }
 

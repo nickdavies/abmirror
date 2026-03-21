@@ -19,6 +19,7 @@ export async function buildSplitOpts(
     reporter?: EngineOpts["reporter"];
     stepIndex?: number;
     rootTxIndex?: EngineOpts["rootTxIndex"];
+    maxChangesPerStep?: number;
   },
   manager: BudgetManager
 ): Promise<EngineOpts> {
@@ -75,10 +76,13 @@ export async function buildSplitOpts(
     reporter: opts.reporter,
     stepIndex: opts.stepIndex,
     stepType: "split",
+    deleteEnabled: step.delete,
+    updateFields: step.updateFields,
     tagEntries,
     excludeAccountIds,
     defaultAction,
     rootTxIndex: opts.rootTxIndex,
+    maxChangesPerStep: opts.maxChangesPerStep,
   };
 }
 

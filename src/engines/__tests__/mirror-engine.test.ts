@@ -14,6 +14,7 @@ const baseStep: MirrorStep = {
   destination: { budget: "dst", account: DEST_ACCOUNT },
   invert: false,
   delete: false,
+  updateFields: false,
 };
 
 const mkTx = (id: string, overrides: Partial<ActualTransaction> = {}): ActualTransaction => ({

@@ -103,14 +103,18 @@ vi.mock("@actual-app/api", async () => {
 
     updateTransaction: async (
       id: string,
-      changes: { date?: string; amount?: number }
+      changes: Record<string, unknown>
     ): Promise<void> => {
       const found = mockState.env
         ? findTransactionGlobally(mockState.env, id)
         : null;
       if (!found) throw new Error(`updateTransaction: tx ${id} not found`);
-      if (changes.date !== undefined) found.tx.date = changes.date;
-      if (changes.amount !== undefined) found.tx.amount = changes.amount;
+      if (changes.date !== undefined) found.tx.date = changes.date as string;
+      if (changes.amount !== undefined) found.tx.amount = changes.amount as number;
+      if (changes.payee_name !== undefined) found.tx.payee_name = changes.payee_name as string | null;
+      if (changes.notes !== undefined) found.tx.notes = changes.notes as string | null;
+      if (changes.category !== undefined) found.tx.category = changes.category as string | null;
+      if (changes.cleared !== undefined) found.tx.cleared = changes.cleared as boolean | null;
       mockState.changeCount++;
     },
 

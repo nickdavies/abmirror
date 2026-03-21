@@ -24,15 +24,36 @@ export function indexExistingMirrored(
   return map;
 }
 
+export interface TransactionUpdate {
+  id: string;
+  date: string;
+  amount: number;
+  payee_name?: string;
+  notes?: string;
+  category?: string | null;
+  cleared?: boolean;
+}
+
 export interface SyncDiff {
   toAdd: Array<{ accountId: string; tx: NewTransaction }>;
-  toUpdate: Array<{ id: string; date: string; amount: number }>;
+  toUpdate: TransactionUpdate[];
   toDelete: ActualTransaction[];
+}
+
+export interface DiffOptions {
+  /** When true, compare and sync payee_name/notes/category/cleared (not just date/amount). */
+  updateFields?: boolean;
+}
+
+/** Normalize null/undefined to a comparable value for field comparison. */
+function strEq(a: string | null | undefined, b: string | null | undefined): boolean {
+  return (a ?? "") === (b ?? "");
 }
 
 export function computeDiff(
   desired: Map<string, { accountId: string; tx: NewTransaction }>,
-  existing: Map<string, ActualTransaction>
+  existing: Map<string, ActualTransaction>,
+  opts?: DiffOptions
 ): SyncDiff {
   const toAdd: SyncDiff["toAdd"] = [];
   const toUpdate: SyncDiff["toUpdate"] = [];
@@ -47,8 +68,28 @@ export function computeDiff(
       toAdd.push({ accountId, tx });
     } else {
       matchedExistingIds.add(existingTx.id);
-      if (existingTx.date !== tx.date || existingTx.amount !== amount) {
-        toUpdate.push({ id: existingTx.id, date: tx.date, amount });
+
+      const dateChanged = existingTx.date !== tx.date;
+      const amountChanged = existingTx.amount !== amount;
+
+      if (opts?.updateFields) {
+        const payeeChanged = !strEq(existingTx.payee_name, tx.payee_name);
+        const notesChanged = !strEq(existingTx.notes, tx.notes);
+        const categoryChanged = (existingTx.category ?? null) !== (tx.category ?? null);
+        const clearedChanged = (existingTx.cleared ?? false) !== (tx.cleared ?? false);
+
+        if (dateChanged || amountChanged || payeeChanged || notesChanged || categoryChanged || clearedChanged) {
+          const update: TransactionUpdate = { id: existingTx.id, date: tx.date, amount };
+          if (payeeChanged) update.payee_name = tx.payee_name ?? "";
+          if (notesChanged) update.notes = tx.notes ?? "";
+          if (categoryChanged) update.category = tx.category ?? null;
+          if (clearedChanged) update.cleared = tx.cleared ?? false;
+          toUpdate.push(update);
+        }
+      } else {
+        if (dateChanged || amountChanged) {
+          toUpdate.push({ id: existingTx.id, date: tx.date, amount });
+        }
       }
     }
   }

@@ -4,6 +4,15 @@
  * BudgetManager.open) and at the end of the pipeline.
  */
 import type { Config } from "../config/schema";
+
+export class PreflightError extends Error {
+  public readonly errors: string[];
+  constructor(errors: string[]) {
+    super("Preflight validation failed:\n" + errors.map((e) => `  - ${e}`).join("\n"));
+    this.name = "PreflightError";
+    this.errors = errors;
+  }
+}
 import type { Secrets } from "../env";
 import { BudgetManager } from "../client/budget-manager";
 import { createRunReporter } from "../notify/reporter";
@@ -19,6 +28,8 @@ export interface RunOptions {
   dryRun?: boolean;
   /** If provided, only run the pipeline step at this 0-based index. */
   stepIndex?: number;
+  /** Override config maxChangesPerStep. undefined = use config value. */
+  maxChangesPerStep?: number;
   /** Show verbose infrastructure messages from Actual API. */
   verbose?: boolean;
   /** Log each sync/download with a counter (for debugging). */
@@ -27,6 +38,8 @@ export interface RunOptions {
 
 export async function runPipeline(opts: RunOptions): Promise<void> {
   const { config, secrets, dryRun = false, stepIndex, verbose = false, debugSync = false } = opts;
+  // CLI flag overrides config; 0 means unlimited (passed as 0, which is falsy → no-op in check)
+  const maxChangesPerStep = opts.maxChangesPerStep ?? config.maxChangesPerStep;
 
   const manager = new BudgetManager(config, secrets, { debugSync });
   await manager.init({ verbose });
@@ -40,11 +53,7 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
     console.log("Running preflight validation...");
     const result = await runPreflight(config, manager, reporter);
     if (!result.ok) {
-      console.error("Preflight validation failed:");
-      for (const err of result.errors) {
-        console.error(`  - ${err}`);
-      }
-      process.exit(1);
+      throw new PreflightError(result.errors);
     }
     console.log("Preflight OK.");
 
@@ -75,6 +84,7 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
             reporter,
             stepIndex: displayIndex,
             rootTxIndex,
+            maxChangesPerStep,
           },
           manager
         );
@@ -92,6 +102,7 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
             reporter,
             globalTxIndex,
             rootTxIndex,
+            maxChangesPerStep,
           },
           manager
         );
@@ -112,7 +123,7 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
     success = false;
     throw err;
   } finally {
-    reporter.send(success);
+    await reporter.send(success);
     await manager.shutdown();
   }
 }
@@ -131,18 +142,14 @@ export async function validateConfig(
   try {
     const result = await runPreflight(config, manager, reporter);
     if (!result.ok) {
-      console.error("Validation failed:");
-      for (const err of result.errors) {
-        console.error(`  - ${err}`);
-      }
       if (debugSync) {
         const counts = manager.getDebugCounts();
         console.error(`[debug] validate preflight: ${counts.sync} syncs, ${counts.download} downloads`);
       }
-      process.exit(1);
+      throw new PreflightError(result.errors);
     }
     console.log("Validation passed.");
-    reporter.send(true);
+    await reporter.send(true);
   } finally {
     await manager.shutdown();
   }

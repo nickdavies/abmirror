@@ -11,7 +11,7 @@ import { join } from "path";
 import { Command } from "commander";
 import { loadConfig } from "./config/loader";
 import { loadSecrets } from "./env";
-import { runPipeline, validateConfig } from "./orchestrator/index";
+import { runPipeline, validateConfig, PreflightError } from "./orchestrator/index";
 import { runListAccounts } from "./commands/list-accounts";
 import {
   resolvePassword,
@@ -121,9 +121,10 @@ program
   .requiredOption("--config <path>", "Path to YAML config file")
   .option("--dry-run", "Validate and simulate execution without writing anything")
   .option("--step <n>", "Run only the pipeline step at this 1-based index", parseInt)
+  .option("--max-changes <n>", "Max changes per step before aborting (0 = unlimited, overrides config)", parseInt)
   .option("--verbose", "Show verbose infrastructure messages (sync, breadcrumbs, etc.)")
   .option("--debug-sync", "Log each sync/download with a counter (for debugging)")
-  .action(async (opts: { config: string; dryRun?: boolean; step?: number; verbose?: boolean; debugSync?: boolean }) => {
+  .action(async (opts: { config: string; dryRun?: boolean; step?: number; maxChanges?: number; verbose?: boolean; debugSync?: boolean }) => {
     debugSyncRequested = opts.debugSync ?? false;
     const config = loadConfig(opts.config);
     const secrets = loadSecrets(config);
@@ -146,6 +147,7 @@ program
         secrets,
         dryRun: opts.dryRun ?? false,
         stepIndex,
+        maxChangesPerStep: opts.maxChanges,
         verbose: opts.verbose,
         debugSync: opts.debugSync,
       });
@@ -155,6 +157,11 @@ program
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {
+  if (err instanceof PreflightError) {
+    console.error(err.message);
+    process.exit(1);
+  }
+
   const rawMsg = err instanceof Error ? err.message : String(err);
   const enhanced = enhanceDownloadError(err);
   const msg = enhanced instanceof Error ? enhanced.message : String(enhanced);

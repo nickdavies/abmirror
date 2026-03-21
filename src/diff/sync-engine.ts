@@ -51,6 +51,10 @@ export interface EngineOpts {
    * a mirrored copy is only deleted if its canonical source tx no longer exists.
    */
   rootTxIndex?: RootTxIndex;
+  /** When true, update payee_name/notes/category/cleared on existing copies (not just date/amount). */
+  updateFields?: boolean;
+  /** Max changes before aborting. 0 or undefined = unlimited. */
+  maxChangesPerStep?: number;
 }
 
 export interface ProposeResult {
@@ -64,10 +68,17 @@ export interface SyncEngine {
   getDestAccountIds(opts: EngineOpts): string[];
 }
 
+function formatLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function lookbackStart(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
+  return formatLocalDate(d);
 }
 
 export async function runSyncEngine(
@@ -77,7 +88,7 @@ export async function runSyncEngine(
 ): Promise<void> {
   const { sourceBudgetId, lookbackDays, dryRun, reporter } = opts;
   const startDate = lookbackStart(lookbackDays);
-  const endDate = new Date().toISOString().slice(0, 10);
+  const endDate = formatLocalDate(new Date());
 
   // --- Phase 1: Read source transactions ---
   await manager.open(opts.sourceBudgetAlias);
@@ -132,7 +143,7 @@ export async function runSyncEngine(
   }
 
   // --- Phase 4: Compute diff and apply ---
-  const diff = computeDiff(desired, existing);
+  const diff = computeDiff(desired, existing, { updateFields: opts.updateFields });
 
   if (opts.debugSync && (diff.toAdd.length > 0 || diff.toUpdate.length > 0 || diff.toDelete.length > 0)) {
     const stepLabel = opts.stepIndex !== undefined ? `step ${opts.stepIndex + 1}` : "step";
@@ -179,7 +190,9 @@ export async function runSyncEngine(
             if (parsed.budgetId !== sourceBudgetId) return false;
           }
 
-          if (opts.stepType === "split" && !desiredAccountIds.has(tx.account)) return false;
+          // Without rootTxIndex, restrict split deletes to accounts with active writes
+          // to avoid cross-step interference. With rootTxIndex, source existence checks suffice.
+          if (opts.stepType === "split" && !opts.rootTxIndex && !desiredAccountIds.has(tx.account)) return false;
           return true;
         })
       : [];
@@ -192,6 +205,26 @@ export async function runSyncEngine(
     });
   }
 
+  const totalChanges = diff.toAdd.length + diff.toUpdate.length + toDelete.length;
+
+  if (totalChanges > 50 && reporter) {
+    reporter.warn("sync.highChangeCount", {
+      stepIndex: opts.stepIndex ?? 0,
+      total: totalChanges,
+      added: diff.toAdd.length,
+      updated: diff.toUpdate.length,
+      deleted: toDelete.length,
+    });
+  }
+
+  if (opts.maxChangesPerStep && totalChanges > opts.maxChangesPerStep) {
+    throw new Error(
+      `Circuit breaker: step would make ${totalChanges} changes ` +
+      `(add=${diff.toAdd.length} update=${diff.toUpdate.length} delete=${toDelete.length}), ` +
+      `limit is ${opts.maxChangesPerStep}. Use --max-changes 0 to disable.`
+    );
+  }
+
   if (dryRun) {
     console.log(
       `  [dry-run] would add=${diff.toAdd.length} update=${diff.toUpdate.length} delete=${toDelete.length}`
@@ -202,8 +235,10 @@ export async function runSyncEngine(
   for (const { accountId, tx } of diff.toAdd) {
     await actual.addTransactions(accountId, [tx]);
   }
-  for (const { id, date, amount } of diff.toUpdate) {
-    await actual.updateTransaction(id, { date, amount });
+  for (const { id, category, ...rest } of diff.toUpdate) {
+    // Actual API doesn't accept null for category; use undefined to clear.
+    const fields = { ...rest, ...(category !== undefined && { category: category ?? undefined }) };
+    await actual.updateTransaction(id, fields);
   }
   await applyDeletes(toDelete);
 

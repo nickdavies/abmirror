@@ -16,10 +16,17 @@ export type GlobalTxIndex = Map<string, Set<string>>;
 /** key: budgetId  →  Set<txId> for all non-ABMirror (root/original) transactions */
 export type RootTxIndex = Map<string, Set<string>>;
 
+function formatLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function lookbackStart(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
+  return formatLocalDate(d);
 }
 
 /**
@@ -35,7 +42,7 @@ export async function buildGlobalTxIndex(
   const globalTxIndex: GlobalTxIndex = new Map();
   const rootTxIndex: RootTxIndex = new Map();
   const startDate = lookbackStart(lookbackDays);
-  const endDate = new Date().toISOString().slice(0, 10);
+  const endDate = formatLocalDate(new Date());
 
   for (const alias of budgetAliases) {
     const budgetInfo = await manager.open(alias);

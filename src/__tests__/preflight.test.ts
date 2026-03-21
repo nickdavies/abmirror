@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runPreflight } from "../orchestrator/preflight";
 import type { BudgetManager } from "../client/budget-manager";
-import type { Config, SplitStep } from "../config/schema";
+import type { Config, MirrorStep, SplitStep } from "../config/schema";
 import type { ActualAccount } from "../selector/types";
 
 const CHECKING_ID = "checking-uuid-1111-2222-3333-444444444444";
@@ -29,6 +29,11 @@ vi.mock("@actual-app/api", () => ({
   ]),
   getBudgets: vi.fn().mockResolvedValue([{ id: "budget-1", groupId: "sync-alpha" }]),
   getCategories: vi.fn().mockResolvedValue([]),
+  aqlQuery: vi.fn().mockResolvedValue({ data: [] }),
+  q: vi.fn().mockReturnValue({
+    select: vi.fn().mockReturnThis(),
+    filter: vi.fn().mockReturnThis(),
+  }),
   init: vi.fn().mockResolvedValue(undefined),
   downloadBudget: vi.fn().mockResolvedValue(undefined),
   sync: vi.fn().mockResolvedValue(undefined),
@@ -56,6 +61,7 @@ function createOverlapConfig(): Config {
       alpha: { syncId: "sync-alpha", encrypted: false },
     },
     lookbackDays: 60,
+    maxChangesPerStep: 100,
     pipeline: [
       {
         type: "split",
@@ -67,6 +73,8 @@ function createOverlapConfig(): Config {
             destination_account: "Checking",
           },
         },
+        delete: false,
+        updateFields: false,
       } satisfies SplitStep,
     ],
   };
@@ -80,6 +88,7 @@ function createNonOverlapConfig(): Config {
       alpha: { syncId: "sync-alpha", encrypted: false },
     },
     lookbackDays: 60,
+    maxChangesPerStep: 100,
     pipeline: [
       {
         type: "split",
@@ -91,6 +100,8 @@ function createNonOverlapConfig(): Config {
             destination_account: "Recv",
           },
         },
+        delete: false,
+        updateFields: false,
       } satisfies SplitStep,
     ],
   };
@@ -118,6 +129,7 @@ describe("runPreflight", () => {
       dataDir: "/tmp/ab-mirror-test",
       budgets: { alpha: { syncId: "sync-alpha", encrypted: false } },
       lookbackDays: 60,
+      maxChangesPerStep: 100,
       pipeline: [
         {
           type: "split",
@@ -129,6 +141,8 @@ describe("runPreflight", () => {
               destination_account: "Recv",
             },
           },
+          delete: false,
+          updateFields: false,
         } satisfies SplitStep,
       ],
     };
@@ -152,16 +166,10 @@ describe("runPreflight", () => {
     expect(result.errors).toHaveLength(0);
   });
 
-  it("emits closedAccountInScope warning when account is closed", async () => {
-    const closedAccount = {
-      id: CHECKING_ID,
-      name: "Checking",
-      offbudget: false,
-      closed: true,
-    };
+  it("emits emptySourceScope warning when explicit source account is closed", async () => {
     const actual = await import("@actual-app/api");
     vi.mocked(actual.getAccounts).mockResolvedValue([
-      closedAccount,
+      { id: CHECKING_ID, name: "Checking", offbudget: false, closed: true },
       { id: RECV_ID, name: "Recv", offbudget: false, closed: false },
     ]);
 
@@ -177,12 +185,59 @@ describe("runPreflight", () => {
     const result = await runPreflight(config, manager, reporter);
 
     expect(result.ok).toBe(true);
-    expect(reporter.warn).toHaveBeenCalledWith("preflight.closedAccountInScope", {
+    expect(reporter.warn).toHaveBeenCalledWith("preflight.emptySourceScope", {
       stepIndex: 0,
-      budget: "alpha",
-      accountName: "Checking",
-      accountId: CHECKING_ID,
+      stepType: "split",
+      spec: ["Checking"],
     });
+  });
+
+  it("fails when split destination account has bank sync enabled", async () => {
+    const actual = await import("@actual-app/api");
+    vi.mocked(actual.aqlQuery).mockResolvedValue({
+      data: [{ id: RECV_ID, account_sync_source: "simpleFin" }],
+    });
+
+    const config = createNonOverlapConfig();
+    const manager = createMockManager();
+
+    const result = await runPreflight(config, manager);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors[0]).toContain("Unlink bank sync");
+    expect(result.errors[0]).toContain("Recv");
+  });
+
+  it("fails when mirror destination account has bank sync enabled", async () => {
+    const actual = await import("@actual-app/api");
+    vi.mocked(actual.aqlQuery).mockResolvedValue({
+      data: [{ id: RECV_ID, account_sync_source: "goCardless" }],
+    });
+
+    const config: Config = {
+      server: { url: "http://localhost:5006" },
+      dataDir: "/tmp/ab-mirror-test",
+      budgets: { alpha: { syncId: "sync-alpha", encrypted: false } },
+      lookbackDays: 60,
+      maxChangesPerStep: 100,
+      pipeline: [
+        {
+          type: "mirror",
+          source: { budget: "alpha", accounts: ["Checking"] },
+          destination: { budget: "alpha", account: "Recv" },
+          invert: false,
+          delete: false,
+          updateFields: false,
+        } satisfies MirrorStep,
+      ],
+    };
+    const manager = createMockManager();
+
+    const result = await runPreflight(config, manager);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors[0]).toContain("Unlink bank sync");
+    expect(result.errors[0]).toContain("Recv");
   });
 
   it("emits emptySourceScope warning when all accounts are closed (all filter)", async () => {
@@ -197,6 +252,7 @@ describe("runPreflight", () => {
       dataDir: "/tmp/ab-mirror-test",
       budgets: { alpha: { syncId: "sync-alpha", encrypted: false } },
       lookbackDays: 60,
+      maxChangesPerStep: 100,
       pipeline: [
         {
           type: "split",
@@ -208,6 +264,8 @@ describe("runPreflight", () => {
               destination_account: "Recv",
             },
           },
+          delete: false,
+          updateFields: false,
         } satisfies SplitStep,
       ],
     };

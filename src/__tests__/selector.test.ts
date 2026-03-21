@@ -40,9 +40,9 @@ describe("selectAccounts", () => {
     expect(result.map((a) => a.id)).toEqual(["a2"]);
   });
 
-  it("array spec selects by id (including closed)", () => {
+  it("array spec excludes closed accounts", () => {
     const result = selectAccounts(accounts, ["a1", "a3"]);
-    expect(result.map((a) => a.id)).toEqual(["a1", "a3"]);
+    expect(result.map((a) => a.id)).toEqual(["a1"]);
   });
 
   it("string spec matches single account id", () => {

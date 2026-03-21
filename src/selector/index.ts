@@ -12,16 +12,15 @@ export function selectAccounts(
   spec: AccountsSpec,
   excludeIds?: Set<string>
 ): ActualAccount[] {
-  const open = accounts.filter((a) => !a.closed);
   let selected: ActualAccount[];
-  if (spec === "all") selected = open;
-  else if (spec === "on-budget") selected = open.filter((a) => !a.offbudget);
-  else if (spec === "off-budget") selected = open.filter((a) => a.offbudget);
+  if (spec === "all") selected = accounts.filter((a) => !a.closed);
+  else if (spec === "on-budget") selected = accounts.filter((a) => !a.offbudget && !a.closed);
+  else if (spec === "off-budget") selected = accounts.filter((a) => a.offbudget && !a.closed);
   else if (Array.isArray(spec)) {
     const ids = new Set(spec);
-    selected = accounts.filter((a) => ids.has(a.id));
+    selected = accounts.filter((a) => ids.has(a.id) && !a.closed);
   } else {
-    selected = accounts.filter((a) => a.id === spec);
+    selected = accounts.filter((a) => a.id === spec && !a.closed);
   }
   if (excludeIds?.size) {
     selected = selected.filter((a) => !excludeIds.has(a.id));
