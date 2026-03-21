@@ -1,0 +1,20 @@
+pipeline:
+  - type: split
+    budget: solo
+    source:
+      accounts: "checking"
+      requiredTags: ["#groceries"]
+    tags:
+      "#groceries":
+        multiplier: 0.5
+        destination_account: "shared"
+
+  - type: split
+    budget: solo
+    source:
+      accounts: "checking"
+      requiredTags: ["#utilities"]
+    tags:
+      "#utilities":
+        multiplier: 1.0
+        destination_account: "shared"

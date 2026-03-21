@@ -1,0 +1,45 @@
+# After mirror src:all → dst:recv with delete: true:
+#   - src:checking is closed → excluded from source scan → no new copy
+#   - Existing copy of closed-account tx is NOT deleted (source tx still in rootTxIndex)
+#   - src:savings tx is mirrored normally
+
+budgets:
+  dst:
+    accounts:
+      recv:
+        transactions:
+          - date: "2025-01-10"
+            amount: -5000
+            payee_name: Old Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:src:TX-3"
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Lunch
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:src:TX-4"
+  src:
+    accounts:
+      checking:
+        closed: true
+        transactions:
+          - date: "2025-01-10"
+            amount: -5000
+            payee_name: Old Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null
+      savings:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Lunch
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null

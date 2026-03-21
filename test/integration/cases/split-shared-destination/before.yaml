@@ -1,0 +1,29 @@
+# Two split steps targeting the same destination account with different tags.
+# Step 1: #groceries → shared at 0.5x
+# Step 2: #utilities → shared at 1.0x
+
+budgets:
+  solo:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-1
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Costco
+            notes: "#groceries"
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []
+          - id: TX-2
+            date: "2025-01-20"
+            amount: -6000
+            payee_name: Xcel Energy
+            notes: "#utilities"
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []
+      shared:
+        transactions: []
