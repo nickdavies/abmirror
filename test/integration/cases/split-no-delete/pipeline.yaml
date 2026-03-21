@@ -7,4 +7,3 @@ pipeline:
       "#route_a":
         multiplier: 1
         destination_account: route_a
-    delete: true

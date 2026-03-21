@@ -1,0 +1,11 @@
+pipeline:
+  - type: mirror
+    source:
+      budget: src
+      accounts: all
+    destination:
+      budget: dst
+      account: recv
+    invert: false
+    delete: false
+    updateFields: true

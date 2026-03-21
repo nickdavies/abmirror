@@ -12,6 +12,7 @@
   default:
     multiplier: 0.5
     destination_account: joint_expenses
+  delete: true
 
 # Step 13: charge the person whose expense it is (#personal_a → pay_a, #personal_b → pay_b)
 - type: split
@@ -25,6 +26,7 @@
     "#personal_b":
       multiplier: 0.5
       destination_account: pay_b
+  delete: true
 
 # Step 14: credit the other person (offsetting entry)
 - type: split
@@ -38,6 +40,7 @@
     "#personal_b":
       multiplier: -0.5
       destination_account: pay_a
+  delete: true
 
 # Joint:pay_b → Joint:pay_a (B's entries become negatives in pay_a)
 - type: mirror

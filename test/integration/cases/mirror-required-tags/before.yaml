@@ -1,0 +1,40 @@
+# mirror-required-tags: only transactions with #joint tag are mirrored.
+# src:checking has 3 txs: TX-1 has #joint, TX-2 has no tags, TX-3 has #other.
+# Only TX-1 should be copied to dst:recv.
+
+budgets:
+  src:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-1
+            date: "2025-02-01"
+            amount: -15000
+            payee_name: Groceries
+            notes: "#joint"
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []
+          - id: TX-2
+            date: "2025-02-05"
+            amount: -3000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []
+          - id: TX-3
+            date: "2025-02-10"
+            amount: -8000
+            payee_name: Gas
+            notes: "#other"
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []
+  dst:
+    accounts:
+      recv:
+        transactions: []

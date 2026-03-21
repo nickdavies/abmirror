@@ -1,0 +1,30 @@
+# split-no-delete: split step without delete: true.
+# solo:route_a has a stale copy (GHOST-01) from a since-deleted source tx.
+# solo:checking has Coffee with #route_a which creates a new copy.
+# Expected: Ghost preserved (no delete), Coffee split copy added.
+
+budgets:
+  solo:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-1
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: "#route_a"
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []
+      route_a:
+        transactions:
+          - id: TX-2
+            date: "2025-01-10"
+            amount: -5000
+            payee_name: "Ghost Payee"
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:solo:GHOST-01"
+            subs: []
