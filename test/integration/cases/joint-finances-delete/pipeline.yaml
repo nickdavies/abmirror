@@ -1,0 +1,60 @@
+# Joint-only steps from the full joint-finances pipeline.
+# Steps 10, 13, 14 are splits; the last two are same-budget mirrors.
+# (delete: false is default for mirrors — stale mirror copies are cleaned up
+#  by the split steps that own their source accounts.)
+
+# Step 10: Joint checking → joint_expenses (50% of every tx; no tag required)
+- type: split
+  budget: Joint
+  source:
+    accounts: ["checking"]
+  tags: {}
+  default:
+    multiplier: 0.5
+    destination_account: joint_expenses
+
+# Step 13: charge the person whose expense it is (#personal_a → pay_a, #personal_b → pay_b)
+- type: split
+  budget: Joint
+  source:
+    accounts: ["checking"]
+  tags:
+    "#personal_a":
+      multiplier: 0.5
+      destination_account: pay_a
+    "#personal_b":
+      multiplier: 0.5
+      destination_account: pay_b
+
+# Step 14: credit the other person (offsetting entry)
+- type: split
+  budget: Joint
+  source:
+    accounts: ["checking"]
+  tags:
+    "#personal_a":
+      multiplier: -0.5
+      destination_account: pay_b
+    "#personal_b":
+      multiplier: -0.5
+      destination_account: pay_a
+
+# Joint:pay_b → Joint:pay_a (B's entries become negatives in pay_a)
+- type: mirror
+  source:
+    budget: Joint
+    accounts: ["pay_b"]
+  destination:
+    budget: Joint
+    account: pay_a
+  invert: true
+
+# Joint:pay_a → Joint:pay_b (A's entries become negatives in pay_b)
+- type: mirror
+  source:
+    budget: Joint
+    accounts: ["pay_a"]
+  destination:
+    budget: Joint
+    account: pay_b
+  invert: true

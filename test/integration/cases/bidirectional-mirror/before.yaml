@@ -1,0 +1,35 @@
+# bidirectional-mirror: A↔B cross-budget mirror with delete: true.
+# Tests that loop prevention works — A's Coffee in B:recv must NOT be copied
+# back to A:recv, and vice versa.
+
+budgets:
+  A:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-1
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []
+      recv:
+        transactions: []
+  B:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-2
+            date: "2025-01-20"
+            amount: -5000
+            payee_name: Lunch
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []
+      recv:
+        transactions: []

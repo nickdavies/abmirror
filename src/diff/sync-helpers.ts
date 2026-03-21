@@ -8,27 +8,17 @@ import * as actual from "@actual-app/api";
 import { isABMirrorId, parseImportedId } from "../util/imported-id";
 import type { ActualTransaction, NewTransaction } from "../selector/types";
 
+/** Index all ABMirror transactions by `parsed.txId:account` and `tx.id:account`. */
 export function indexExistingMirrored(
-  destTxs: ActualTransaction[],
-  sourceBudgetId: string,
-  destBudgetId?: string,
-  allBudgetIds?: string[]
+  destTxs: ActualTransaction[]
 ): Map<string, ActualTransaction> {
   const map = new Map<string, ActualTransaction>();
-  const budgetIds = new Set([sourceBudgetId]);
-  if (destBudgetId !== undefined && destBudgetId !== sourceBudgetId) {
-    budgetIds.add(destBudgetId);
-  }
-  if (allBudgetIds) {
-    for (const id of allBudgetIds) budgetIds.add(id);
-  }
   for (const tx of destTxs) {
     if (!isABMirrorId(tx.imported_id)) continue;
     const parsed = parseImportedId(tx.imported_id as string);
-    if (!parsed || !budgetIds.has(parsed.budgetId)) continue;
+    if (!parsed) continue;
     map.set(`${parsed.txId}:${tx.account}`, tx);
-    // Also index by tx.id so round-trip from mirror output matches (mirror uses source tx id,
-    // but split output has imported_id pointing to source checking tx, not itself)
+    // Also index by tx.id so round-trip from mirror output matches
     map.set(`${tx.id}:${tx.account}`, tx);
   }
   return map;
@@ -62,26 +52,21 @@ export function computeDiff(
       }
     }
   }
+  const seenDeleteIds = new Set<string>();
   for (const [key, tx] of existing) {
-    if (!desired.has(key) && !matchedExistingIds.has(tx.id)) toDelete.push(tx);
+    if (!desired.has(key) && !matchedExistingIds.has(tx.id) && !seenDeleteIds.has(tx.id)) {
+      seenDeleteIds.add(tx.id);
+      toDelete.push(tx);
+    }
   }
   return { toAdd, toUpdate, toDelete };
 }
 
-export async function applyDeletes(
-  toDelete: ActualTransaction[],
-  expectedBudgetId: string
-): Promise<void> {
+export async function applyDeletes(toDelete: ActualTransaction[]): Promise<void> {
   for (const tx of toDelete) {
     if (!isABMirrorId(tx.imported_id)) {
       throw new Error(
         `Refusing to delete transaction ${tx.id}: not an ABMirror transaction (imported_id=${tx.imported_id ?? "null"})`
-      );
-    }
-    const parsed = parseImportedId(tx.imported_id as string);
-    if (parsed?.budgetId !== expectedBudgetId) {
-      throw new Error(
-        `Refusing to delete transaction ${tx.id}: imported_id budget "${parsed?.budgetId}" does not match expected "${expectedBudgetId}"`
       );
     }
     await actual.deleteTransaction(tx.id);

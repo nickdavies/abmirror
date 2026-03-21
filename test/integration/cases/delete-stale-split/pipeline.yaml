@@ -1,0 +1,9 @@
+pipeline:
+  - type: split
+    budget: solo
+    source:
+      accounts: ["checking"]
+    tags:
+      "#route_a":
+        multiplier: 1
+        destination_account: route_a

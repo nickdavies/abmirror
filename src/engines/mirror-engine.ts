@@ -16,6 +16,8 @@ export async function buildMirrorOpts(
     lookbackDays: number;
     dryRun: boolean;
     reporter?: EngineOpts["reporter"];
+    globalTxIndex?: EngineOpts["globalTxIndex"];
+    rootTxIndex?: EngineOpts["rootTxIndex"];
   },
   manager: BudgetManager
 ): Promise<EngineOpts> {
@@ -31,10 +33,6 @@ export async function buildMirrorOpts(
   );
   if (!destResolved.ok) throw new Error(destResolved.error);
 
-  const allBudgetIds = manager.getAllBudgetIds();
-  // When mirroring to a budget that receives from multiple origins (e.g. alpha gets from beta via gamma),
-  // include all pipeline budgets so we find cross-budget round-trip txs. Only when we have 3+ budgets.
-  const needsCrossBudgetIndex = allBudgetIds.length >= 3 && step.source.budget !== step.destination.budget;
   return {
     sourceBudgetAlias: step.source.budget,
     sourceBudgetId: sourceInfo.budgetId,
@@ -48,8 +46,22 @@ export async function buildMirrorOpts(
     reporter: opts.reporter,
     stepType: "mirror",
     deleteEnabled: step.delete,
-    indexBudgetIds: needsCrossBudgetIndex ? allBudgetIds : undefined,
+    globalTxIndex: opts.globalTxIndex,
+    rootTxIndex: opts.rootTxIndex,
   };
+}
+
+/** Stable sort so duplicate keys (e.g. same origin) resolve to the same tx each round. */
+function sortSourceTxs<T extends { date: string; amount: number; notes?: string | null; id: string }>(
+  txs: T[]
+): T[] {
+  return [...txs].sort(
+    (a, b) =>
+      a.date.localeCompare(b.date) ||
+      a.amount - b.amount ||
+      (a.notes ?? "").localeCompare(b.notes ?? "") ||
+      a.id.localeCompare(b.id)
+  );
 }
 
 export function createMirrorEngine(step: MirrorStep): SyncEngine {
@@ -58,10 +70,34 @@ export function createMirrorEngine(step: MirrorStep): SyncEngine {
       const destAccountId = opts.destAccountIds[0]!;
       const desired = new Map<string, { accountId: string; tx: NewTransaction }>();
 
-      for (const sourceTx of sourceTxs) {
+      for (const sourceTx of sortSourceTxs(sourceTxs)) {
+        // Do not mirror a tx back to its origin budget — avoids direct round-trip loops.
+        if (isABMirrorId(sourceTx.imported_id)) {
+          const parsed = parseImportedId(sourceTx.imported_id as string);
+          if (!parsed) {
+            // malformed — skip
+            continue;
+          }
+          // Within-round: skip if canonical source is the dest budget
+          if (parsed.budgetId === opts.destBudgetId) continue;
+
+          // Cross-round: skip if dest already has a copy of this canonical tx.
+          // Only applies when this step is NOT the canonical owner (parsed.budgetId !==
+          // sourceBudgetId). Owner steps must keep their txs in desired to prevent
+          // the existing copy (indexed by sourceBudgetId) from being spuriously deleted.
+          if (opts.globalTxIndex && parsed.budgetId !== opts.sourceBudgetId) {
+            const canonicalKey = `${parsed.budgetId}:${parsed.txId}`;
+            const destKey = `${opts.destBudgetId}:${destAccountId}`;
+            if (opts.globalTxIndex.get(canonicalKey)?.has(destKey)) continue;
+          }
+        }
+
         const amount = step.invert ? -sourceTx.amount : sourceTx.amount;
-        const category =
-          step.categoryMapping && sourceTx.category
+        // Within same budget: pass category through. Across budgets: use mapping or null.
+        const sameBudget = opts.sourceBudgetId === opts.destBudgetId;
+        const category = sameBudget
+          ? (sourceTx.category ?? undefined)
+          : step.categoryMapping && sourceTx.category
             ? (step.categoryMapping[sourceTx.category] ?? undefined)
             : undefined;
 

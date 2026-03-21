@@ -1,0 +1,32 @@
+# delete-stale-same-budget: same-budget mirror with delete: true.
+# Tests the NEW root-existence behaviour — previously same-budget mirrors
+# never deleted anything; now they delete when the canonical root is gone.
+#
+# solo:dest has a stale copy pointing to a ghost tx that doesn't exist in solo:source.
+# Expected: stale copy deleted, real mirror copy of Coffee added.
+
+budgets:
+  solo:
+    accounts:
+      dest:
+        transactions:
+          - id: TX-1
+            date: "2025-01-10"
+            amount: -5000
+            payee_name: "Ghost Payee"
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:solo:GHOST-01"
+            subs: []
+      source:
+        transactions:
+          - id: TX-2
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []

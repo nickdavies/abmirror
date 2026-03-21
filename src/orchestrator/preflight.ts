@@ -23,6 +23,7 @@ import {
   resolveAccountId,
 } from "../util/account-resolver";
 import type { RunReporter } from "../notify/reporter";
+import { validatePipelineGraph, type ResolvedStep } from "../graph/validator";
 
 export interface PreflightResult {
   ok: boolean;
@@ -100,14 +101,31 @@ export async function runPreflight(
   }
 
   // --- Step 3: Validate each step's accounts and category mappings ---
+  const resolvedSteps: ResolvedStep[] = [];
+
   for (let i = 0; i < config.pipeline.length; i++) {
     const step = config.pipeline[i]!;
     const label = `step[${i}] (${step.type})`;
 
     if (step.type === "split") {
-      await validateSplitStep(step, label, manager, errors, i, reporter);
+      const resolved = await validateSplitStep(step, label, manager, errors, i, reporter);
+      if (resolved) resolvedSteps.push(resolved);
     } else if (step.type === "mirror") {
-      await validateMirrorStep(step, label, manager, errors, i, reporter);
+      const resolved = await validateMirrorStep(step, label, manager, errors, i, reporter);
+      if (resolved) resolvedSteps.push(resolved);
+    }
+  }
+
+  // --- Step 4: Graph-based loop validation ---
+  if (errors.length === 0) {
+    const violations = validatePipelineGraph(resolvedSteps);
+    for (const v of violations) {
+      errors.push(
+        `Invalid pipeline loop: exit node(s) [${v.offendingExitNodes.join(", ")}] ` +
+          `in SCC [${v.sccNodes.join(", ")}] have outgoing edges outside the cycle ` +
+          `but are not entry points. Transactions could flow out of this cycle in an ` +
+          `uncontrolled way (entry nodes: [${v.entryNodes.join(", ")}]).`
+      );
     }
   }
 
@@ -179,7 +197,7 @@ async function validateSplitStep(
   errors: string[],
   stepIndex: number,
   reporter?: RunReporter
-): Promise<void> {
+): Promise<ResolvedStep | null> {
   const accounts = await getAccountsForBudget(step.budget, manager);
 
   // Resolve source accounts (names -> IDs)
@@ -190,7 +208,7 @@ async function validateSplitStep(
   );
   if (!srcResult.ok) {
     errors.push(`${label}: ${srcResult.error}`);
-    return;
+    return null;
   }
 
   // Resolve destination accounts first (needed for broad-spec exclude)
@@ -214,6 +232,17 @@ async function validateSplitStep(
           accountId: destAccount.id,
         });
       }
+    }
+  }
+
+  if (step.default) {
+    const defResult = resolveAccountId(
+      accounts,
+      step.default.destination_account,
+      step.budget
+    );
+    if (defResult.ok) {
+      destIds.add(defResult.id);
     }
   }
 
@@ -247,7 +276,15 @@ async function validateSplitStep(
     errors.push(
       `${label}: split destination account is in source scope -- use explicit source accounts or exclude it`
     );
+    return null;
   }
+
+  return {
+    type: "split",
+    budgetAlias: step.budget,
+    srcAccountIds: [...sourceIds],
+    dstAccountIds: [...destIds],
+  };
 }
 
 async function validateMirrorStep(
@@ -257,7 +294,7 @@ async function validateMirrorStep(
   errors: string[],
   stepIndex: number,
   reporter?: RunReporter
-): Promise<void> {
+): Promise<ResolvedStep | null> {
   const sourceAlias = step.source.budget;
   const destAlias = step.destination.budget;
 
@@ -272,7 +309,7 @@ async function validateMirrorStep(
   );
   if (!srcResult.ok) {
     errors.push(`${label}: ${srcResult.error}`);
-    return;
+    return null;
   }
 
   const selectedSourceAccounts = selectAccounts(sourceAccounts, srcResult.spec!);
@@ -302,7 +339,7 @@ async function validateMirrorStep(
   );
   if (!destResult.ok) {
     errors.push(`${label}: ${destResult.error}`);
-    return;
+    return null;
   }
   const destAccount = destAccounts.find((x) => x.id === destResult.id);
   if (destAccount?.closed && reporter) {
@@ -321,6 +358,7 @@ async function validateMirrorStep(
       errors.push(
         `${label}: same-budget mirror where source accounts include destination account -- they must be distinct`
       );
+      return null;
     }
   }
 
@@ -344,4 +382,12 @@ async function validateMirrorStep(
       }
     }
   }
+
+  return {
+    type: "mirror",
+    srcAlias: sourceAlias,
+    srcAccountIds: selectedSourceAccounts.map((a) => a.id),
+    dstAlias: destAlias,
+    dstAccountId: destResult.id,
+  };
 }

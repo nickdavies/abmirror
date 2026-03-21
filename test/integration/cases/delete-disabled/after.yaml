@@ -1,0 +1,41 @@
+# After pipeline (delete: false):
+#   dst:recv: Ghost survives (not deleted), Coffee mirror copy added
+#   src:checking: unchanged
+#
+# Global sort:
+#   TX-1: dst:recv Ghost (2025-01-10)
+#   TX-2: dst:recv Coffee copy (2025-01-15)
+#   TX-3: src:checking Coffee original (2025-01-15)
+#
+# Ghost's imported_id is omitted — it retains a non-canonical runtime format
+# (ABMirror:budget-src:GHOST-01) that can't be rewritten to alias:TX-N.
+
+budgets:
+  dst:
+    accounts:
+      recv:
+        transactions:
+          - date: "2025-01-10"
+            amount: -5000
+            payee_name: "Ghost Payee"
+            notes: null
+            category: null
+            cleared: null
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:src:TX-3"
+  src:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null

@@ -11,6 +11,7 @@ import { runSyncEngine } from "../diff/sync-engine";
 import { createMirrorEngine, buildMirrorOpts } from "../engines/mirror-engine";
 import { createSplitEngine, buildSplitOpts } from "../engines/split-engine";
 import { runPreflight } from "./preflight";
+import { buildGlobalTxIndex } from "../diff/global-tx-index";
 
 export interface RunOptions {
   config: Config;
@@ -52,6 +53,13 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
         ? config.pipeline.slice(stepIndex, stepIndex + 1)
         : config.pipeline;
 
+    // Pre-pass: build both indexes for loop prevention and root-existence delete semantics.
+    const { globalTxIndex, rootTxIndex } = await buildGlobalTxIndex(
+      Object.keys(config.budgets),
+      config.lookbackDays,
+      manager
+    );
+
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i]!;
       const displayIndex = stepIndex ?? i;
@@ -66,6 +74,7 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
             dryRun,
             reporter,
             stepIndex: displayIndex,
+            rootTxIndex,
           },
           manager
         );
@@ -81,6 +90,8 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
             lookbackDays: config.lookbackDays,
             dryRun,
             reporter,
+            globalTxIndex,
+            rootTxIndex,
           },
           manager
         );

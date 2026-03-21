@@ -1,0 +1,31 @@
+# delete-stale-mirror: cross-budget mirror with delete: true.
+# dst:recv has a stale copy pointing to a ghost tx that doesn't exist in src.
+# Expected: stale copy deleted, real mirror copy of Coffee added.
+
+budgets:
+  dst:
+    accounts:
+      recv:
+        transactions:
+          - id: TX-1
+            date: "2025-01-10"
+            amount: -5000
+            payee_name: "Ghost Payee"
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:src:GHOST-01"
+            subs: []
+  src:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-2
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null
+            subs: []

@@ -1,0 +1,29 @@
+# After pipeline:
+#   solo:dest: Ghost deleted, Coffee mirror copy added
+#   solo:source: unchanged
+#
+# Global sort (dest < source, both date 2025-01-15 Coffee):
+#   TX-1: solo:dest Coffee copy
+#   TX-2: solo:source Coffee original
+
+budgets:
+  solo:
+    accounts:
+      dest:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:solo:TX-2"
+      source:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null

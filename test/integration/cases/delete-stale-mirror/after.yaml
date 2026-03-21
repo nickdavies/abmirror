@@ -1,0 +1,31 @@
+# After pipeline:
+#   dst:recv: Ghost deleted, Coffee mirror copy added (imported_id → src:TX-2)
+#   src:checking: unchanged
+#
+# Global sort (dst < src, both date 2025-01-15 Coffee):
+#   TX-1: dst:recv Coffee copy
+#   TX-2: src:checking Coffee original
+
+budgets:
+  dst:
+    accounts:
+      recv:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:src:TX-2"
+  src:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null

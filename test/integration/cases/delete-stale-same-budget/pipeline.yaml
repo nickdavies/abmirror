@@ -1,0 +1,10 @@
+pipeline:
+  - type: mirror
+    source:
+      budget: solo
+      accounts: ["source"]
+    destination:
+      budget: solo
+      account: dest
+    invert: false
+    delete: true

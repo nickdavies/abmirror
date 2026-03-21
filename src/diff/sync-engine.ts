@@ -8,12 +8,15 @@ import { resolveAccountsSpec } from "../util/account-resolver";
 import type { BudgetManager } from "../client/budget-manager";
 import type { ActualTransaction, NewTransaction } from "../selector/types";
 import type { AccountsSpec } from "../config/schema";
+import { isABMirrorId, parseImportedId } from "../util/imported-id";
 import {
   indexExistingMirrored,
   computeDiff,
   applyDeletes,
   type SyncDiff,
 } from "./sync-helpers";
+import type { GlobalTxIndex, RootTxIndex } from "./global-tx-index";
+import { getRootTxId } from "../util/imported-id";
 
 export interface EngineOpts {
   sourceBudgetAlias: string;
@@ -27,15 +30,27 @@ export interface EngineOpts {
   dryRun: boolean;
   reporter?: import("../notify/reporter").RunReporter;
   stepIndex?: number;
+  /** When true, log desired/existing keys and add/delete details for debugging non-convergence */
+  debugSync?: boolean;
   stepType: "split" | "mirror";
   /** Mirror only: when false, never delete (even if source is gone). Split always deletes. */
   deleteEnabled?: boolean;
   /** Split engine only: resolved tag entries with destination_account as ID */
   tagEntries?: Array<[string, { multiplier: number; destination_account: string }]>;
-  /** Mirror only: budget IDs to index for cross-budget round-trip (e.g. beta→alpha via gamma) */
-  indexBudgetIds?: string[];
   /** Split only: when source spec is broad, exclude these account IDs from source scope */
   excludeAccountIds?: Set<string>;
+  /** Split only: when set, txs matching no tag get this action (destination_account is resolved ID) */
+  defaultAction?: { multiplier: number; destination_account: string };
+  /**
+   * Global pre-pass index of canonical tx locations. Used by mirror engine to skip
+   * placing a tx where a copy from the same canonical origin already exists.
+   */
+  globalTxIndex?: GlobalTxIndex;
+  /**
+   * Pre-pass index of root (non-ABMirror) tx IDs per budget. Used in the delete filter:
+   * a mirrored copy is only deleted if its canonical source tx no longer exists.
+   */
+  rootTxIndex?: RootTxIndex;
 }
 
 export interface ProposeResult {
@@ -112,19 +127,62 @@ export async function runSyncEngine(
       startDate,
       endDate
     )) as ActualTransaction[];
-    const partial = indexExistingMirrored(
-      destTxs,
-      sourceBudgetId,
-      opts.destBudgetId,
-      opts.indexBudgetIds
-    );
+    const partial = indexExistingMirrored(destTxs);
     for (const [k, v] of partial) existing.set(k, v);
   }
 
   // --- Phase 4: Compute diff and apply ---
   const diff = computeDiff(desired, existing);
 
-  const toDelete = opts.deleteEnabled !== false ? diff.toDelete : [];
+  if (opts.debugSync && (diff.toAdd.length > 0 || diff.toUpdate.length > 0 || diff.toDelete.length > 0)) {
+    const stepLabel = opts.stepIndex !== undefined ? `step ${opts.stepIndex + 1}` : "step";
+    const desiredKeys = [...desired.keys()].sort();
+    const existingKeys = [...existing.keys()].sort();
+    // eslint-disable-next-line no-console
+    console.error(
+      `[DEBUG_SYNC] ${stepLabel} (${opts.stepType} ${opts.sourceBudgetAlias}→${opts.destBudgetAlias}): ` +
+        `desired keys (${desiredKeys.length})=${JSON.stringify(desiredKeys.slice(0, 10))}${desiredKeys.length > 10 ? "…" : ""} ` +
+        `existing keys (${existingKeys.length})=${JSON.stringify(existingKeys.slice(0, 10))}${existingKeys.length > 10 ? "…" : ""}`
+    );
+    for (const { tx } of diff.toAdd) {
+      // eslint-disable-next-line no-console
+      console.error(`[DEBUG_SYNC]   toAdd: imported_id=${tx.imported_id ?? "null"} date=${tx.date} amount=${tx.amount ?? 0}`);
+    }
+    for (const tx of diff.toDelete) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[DEBUG_SYNC]   toDelete candidate: id=${tx.id} imported_id=${tx.imported_id ?? "null"}`
+      );
+    }
+  }
+
+  // Delete a mirrored copy only when its canonical root transaction is gone.
+  // rootTxIndex provides O(1) existence checks; without it, fall back to old
+  // budget-match behaviour (same-budget mirrors never delete in that mode).
+  // For split steps with multiple dest accounts: only delete from accounts we're
+  // writing to this round, so we don't clobber another split step's output.
+  const desiredAccountIds = new Set([...desired.values()].map((d) => d.accountId));
+  const toDelete =
+    opts.deleteEnabled !== false
+      ? diff.toDelete.filter((tx) => {
+          if (!isABMirrorId(tx.imported_id)) return false;
+          const parsed = parseImportedId(tx.imported_id as string);
+          if (!parsed) return false;
+
+          if (opts.rootTxIndex) {
+            const rootTxId = getRootTxId(parsed.txId);
+            const rootExists = opts.rootTxIndex.get(parsed.budgetId)?.has(rootTxId) ?? false;
+            if (rootExists) return false;
+          } else {
+            // Fallback: old behaviour
+            if (opts.stepType === "mirror" && opts.sourceBudgetId === opts.destBudgetId) return false;
+            if (parsed.budgetId !== sourceBudgetId) return false;
+          }
+
+          if (opts.stepType === "split" && !desiredAccountIds.has(tx.account)) return false;
+          return true;
+        })
+      : [];
   if (reporter) {
     reporter.recordStep({
       type: opts.stepType,
@@ -147,7 +205,7 @@ export async function runSyncEngine(
   for (const { id, date, amount } of diff.toUpdate) {
     await actual.updateTransaction(id, { date, amount });
   }
-  await applyDeletes(toDelete, sourceBudgetId);
+  await applyDeletes(toDelete);
 
   console.log(
     `  added=${diff.toAdd.length} updated=${diff.toUpdate.length} deleted=${toDelete.length}`

@@ -18,6 +18,7 @@ export async function buildSplitOpts(
     dryRun: boolean;
     reporter?: EngineOpts["reporter"];
     stepIndex?: number;
+    rootTxIndex?: EngineOpts["rootTxIndex"];
   },
   manager: BudgetManager
 ): Promise<EngineOpts> {
@@ -43,6 +44,17 @@ export async function buildSplitOpts(
   }
 
   const destAccountIds = [...new Set(tagEntries.map(([, a]) => a.destination_account))];
+  let defaultAction: EngineOpts["defaultAction"];
+  if (step.default) {
+    const destResolved = resolveAccountId(
+      allAccounts,
+      step.default.destination_account,
+      step.budget
+    );
+    if (!destResolved.ok) throw new Error(`default: ${destResolved.error}`);
+    defaultAction = { ...step.default, destination_account: destResolved.id };
+    if (!destAccountIds.includes(destResolved.id)) destAccountIds.push(destResolved.id);
+  }
 
   const isBroadSpec =
     step.source.accounts === "all" ||
@@ -65,6 +77,8 @@ export async function buildSplitOpts(
     stepType: "split",
     tagEntries,
     excludeAccountIds,
+    defaultAction,
+    rootTxIndex: opts.rootTxIndex,
   };
 }
 
@@ -82,7 +96,27 @@ export function createSplitEngine(step: SplitStep): SyncEngine {
         );
 
         if (matchingTags.length === 0) {
-          scopeMatchNoActionTagCount++;
+          if (opts.defaultAction) {
+            const action = opts.defaultAction;
+            const amount = Math.round(tx.amount * action.multiplier);
+            const logicalId = `${tx.id}::default::${action.destination_account}`;
+            // Key must match indexExistingMirrored: parsed.txId:tx.account
+            const key = `${logicalId}:${action.destination_account}`;
+            desired.set(key, {
+              accountId: action.destination_account,
+              tx: {
+                date: tx.date,
+                amount,
+                payee_name: tx.payee_name ?? undefined,
+                notes: tx.notes ?? undefined,
+                category: tx.category ?? undefined,
+                cleared: tx.cleared,
+                imported_id: formatImportedId(opts.sourceBudgetId, logicalId),
+              },
+            });
+          } else {
+            scopeMatchNoActionTagCount++;
+          }
           continue;
         }
 

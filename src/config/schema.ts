@@ -26,6 +26,13 @@ export const SplitStepSchema = z.object({
     requiredTags: z.array(z.string().min(1)).optional(),
   }),
   tags: z.record(z.string().min(1), TagActionSchema),
+  /** When set, transactions that match no tag are routed here (e.g. "all checking → 50% joint_expenses"). */
+  default: z
+    .object({
+      multiplier: z.number(),
+      destination_account: z.string().min(1),
+    })
+    .optional(),
 });
 
 export const MirrorStepSchema = z.object({

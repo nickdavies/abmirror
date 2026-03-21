@@ -137,6 +137,8 @@ vi.mock("@actual-app/api", async () => {
 
 import {
   loadFixture,
+  loadExpectedFixture,
+  assertMatchesExpected,
   importFixtureToRuntime,
   exportRuntimeToFixture,
   diffFixtureSnapshots,
@@ -238,7 +240,7 @@ if (cases.length === 0) {
       describe(c.name, () => {
         it("pipeline settles and matches after.yaml", async () => {
           const before = loadFixture(c.beforePath);
-          const expected = loadFixture(c.afterPath);
+          const expected = loadExpectedFixture(c.afterPath);
           const steps = loadPipeline(c.pipelinePath);
 
           const { env, idMap } = importFixtureToRuntime(before);
@@ -261,9 +263,7 @@ if (cases.length === 0) {
 
           const actual = exportRuntimeToFixture(env, idMap);
 
-          expect(actual, `Case "${c.name}": final state does not match after.yaml`).toEqual(
-            expected
-          );
+          assertMatchesExpected(actual, expected);
         });
       });
     }

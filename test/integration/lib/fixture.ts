@@ -150,6 +150,172 @@ export type IdMap = {
   aliasToBudgetId: Map<string, string>;
 };
 
+// ─── Expected snapshot types (content-based, no IDs) ─────────────────────────
+
+/**
+ * Content-based expected tx. No `id` field.
+ * `imported_id`: undefined = skip check, null = assert null, string = assert exact match.
+ * `subs`: if provided, assert subs match content-wise.
+ */
+export type ExpectedSubSnapshot = {
+  amount: number;
+  payee_name?: string | null;
+  notes?: string | null;
+  category?: string | null;
+};
+
+export type ExpectedTxSnapshot = {
+  date: string;
+  amount: number;
+  payee_name: string | null;
+  notes: string | null;
+  category: string | null;
+  cleared: boolean | null;
+  imported_id?: string | null;
+  subs?: ExpectedSubSnapshot[];
+};
+
+export type ExpectedAccountSnapshot = { transactions: ExpectedTxSnapshot[] };
+export type ExpectedBudgetSnapshot  = { accounts: Record<string, ExpectedAccountSnapshot> };
+export type ExpectedFixtureSnapshot = { budgets: Record<string, ExpectedBudgetSnapshot> };
+
+export function loadExpectedFixture(path: string): ExpectedFixtureSnapshot {
+  const raw = readFileSync(path, "utf-8");
+  return parse(raw) as ExpectedFixtureSnapshot;
+}
+
+/**
+ * Content-based assertion. For each expected budget/account/tx:
+ *  - Find the ONE actual tx matching on (date, amount, payee_name, notes, category, cleared).
+ *  - 0 matches → throw "Expected tx not found"
+ *  - 2+ matches → throw "Ambiguous match"
+ *  - If imported_id is specified (not undefined), assert exact match.
+ *  - Assert no extra transactions in actual beyond what expected covers.
+ */
+export function assertMatchesExpected(
+  actual: FixtureSnapshot,
+  expected: ExpectedFixtureSnapshot
+): void {
+  for (const [budgetAlias, expectedBudget] of Object.entries(expected.budgets)) {
+    const actualBudget = actual.budgets[budgetAlias];
+    if (!actualBudget) {
+      throw new Error(`Budget "${budgetAlias}" not found in actual state`);
+    }
+    for (const [accountName, expectedAccount] of Object.entries(expectedBudget.accounts)) {
+      const actualAccount = actualBudget.accounts[accountName];
+      if (!actualAccount) {
+        throw new Error(`Account "${accountName}" in budget "${budgetAlias}" not found in actual state`);
+      }
+
+      const actualTxs = actualAccount.transactions;
+      const matchedIds = new Set<string>();
+
+      for (const expectedTx of expectedAccount.transactions) {
+        const candidates = actualTxs.filter(
+          (tx) =>
+            tx.date === expectedTx.date &&
+            tx.amount === expectedTx.amount &&
+            (tx.payee_name ?? null) === expectedTx.payee_name &&
+            (tx.notes ?? null) === expectedTx.notes &&
+            (tx.category ?? null) === expectedTx.category &&
+            (tx.cleared ?? null) === expectedTx.cleared
+        );
+
+        if (candidates.length === 0) {
+          throw new Error(
+            `Expected tx not found in ${budgetAlias}.${accountName}: ` +
+              JSON.stringify({
+                date: expectedTx.date,
+                amount: expectedTx.amount,
+                payee_name: expectedTx.payee_name,
+                notes: expectedTx.notes,
+                category: expectedTx.category,
+              })
+          );
+        }
+        if (candidates.length > 1) {
+          throw new Error(
+            `Ambiguous match in ${budgetAlias}.${accountName}: ` +
+              `${candidates.length} txs match ` +
+              JSON.stringify({
+                date: expectedTx.date,
+                amount: expectedTx.amount,
+                payee_name: expectedTx.payee_name,
+                notes: expectedTx.notes,
+              })
+          );
+        }
+
+        const matched = candidates[0]!;
+        matchedIds.add(matched.id);
+
+        if (expectedTx.imported_id !== undefined) {
+          const actualImportedId = matched.imported_id ?? null;
+          if (actualImportedId !== expectedTx.imported_id) {
+            throw new Error(
+              `imported_id mismatch in ${budgetAlias}.${accountName} for tx ` +
+                `{date: ${expectedTx.date}, amount: ${expectedTx.amount}, payee: ${expectedTx.payee_name}}: ` +
+                `expected ${JSON.stringify(expectedTx.imported_id)}, got ${JSON.stringify(actualImportedId)}`
+            );
+          }
+        }
+
+        if (expectedTx.subs !== undefined) {
+          const actualSubs = matched.subs ?? [];
+          assertSubsMatch(actualSubs, expectedTx.subs, `${budgetAlias}.${accountName}`, matched.id);
+        }
+      }
+
+      // No extra transactions
+      const unmatched = actualTxs.filter((tx) => !matchedIds.has(tx.id));
+      if (unmatched.length > 0) {
+        const desc = unmatched
+          .map((t) => JSON.stringify({ date: t.date, amount: t.amount, payee_name: t.payee_name }))
+          .join(", ");
+        throw new Error(
+          `Extra transactions in ${budgetAlias}.${accountName} not covered by expected: ${desc}`
+        );
+      }
+    }
+  }
+}
+
+function assertSubsMatch(
+  actualSubs: SubSnapshot[],
+  expectedSubs: ExpectedSubSnapshot[],
+  location: string,
+  parentId: string
+): void {
+  const matched = new Set<number>();
+  for (const expectedSub of expectedSubs) {
+    const candidates: number[] = [];
+    for (let i = 0; i < actualSubs.length; i++) {
+      const a = actualSubs[i]!;
+      if (
+        a.amount === expectedSub.amount &&
+        (expectedSub.payee_name === undefined || (a.payee_name ?? null) === expectedSub.payee_name) &&
+        (expectedSub.notes === undefined || (a.notes ?? null) === expectedSub.notes) &&
+        (expectedSub.category === undefined || (a.category ?? null) === expectedSub.category)
+      ) {
+        candidates.push(i);
+      }
+    }
+    if (candidates.length === 0) {
+      throw new Error(
+        `Expected sub not found in ${location} parent ${parentId}: ` +
+          JSON.stringify(expectedSub)
+      );
+    }
+    if (candidates.filter((i) => !matched.has(i)).length === 0) {
+      throw new Error(
+        `Ambiguous sub match in ${location} parent ${parentId}: ` +
+          JSON.stringify(expectedSub)
+      );
+    }
+    matched.add(candidates.find((i) => !matched.has(i))!);
+  }
+}
+
 // ─── File I/O ─────────────────────────────────────────────────────────────────
 
 export function loadFixture(path: string): FixtureSnapshot {
@@ -288,6 +454,8 @@ export function importFixtureToRuntime(fixture: FixtureSnapshot): {
 
 /**
  * Rewrite "ABMirror:<alias>:<TX-N>" → "ABMirror:<budgetId>:<runtimeUUID>".
+ * Also handles split default compound IDs: "ABMirror:<alias>:<TX-N>::default::<acctId>"
+ * → "ABMirror:<budgetId>:<runtimeUUID>::default::<acctId>".
  * Non-ABMirror values and references to unknown placeholders are left as-is.
  */
 function rewriteImportedIdFixtureToRuntime(
@@ -298,9 +466,24 @@ function rewriteImportedIdFixtureToRuntime(
   const parsed = parseImportedId(importedId as string);
   if (!parsed) return importedId;
   const runtimeBId = idMap.aliasToBudgetId.get(parsed.budgetId);
+  if (!runtimeBId) return importedId; // unknown alias — leave as-is
+
+  // Direct lookup (no ::default:: suffix)
   const runtimeTxId = idMap.placeholderToTxId.get(parsed.txId);
-  if (!runtimeBId || !runtimeTxId) return importedId;
-  return formatImportedId(runtimeBId, runtimeTxId);
+  if (runtimeTxId) return formatImportedId(runtimeBId, runtimeTxId);
+
+  // Handle split default compound IDs: "<placeholder>::default::<acctId>"
+  const defaultIdx = parsed.txId.indexOf("::default::");
+  if (defaultIdx !== -1) {
+    const basePlaceholder = parsed.txId.slice(0, defaultIdx);
+    const suffix = parsed.txId.slice(defaultIdx);
+    const baseRuntimeId = idMap.placeholderToTxId.get(basePlaceholder);
+    if (baseRuntimeId) return formatImportedId(runtimeBId, baseRuntimeId + suffix);
+  }
+
+  // If the alias is known but the tx placeholder isn't (stale/dangling reference),
+  // still rewrite the budget ID so rootTxIndex lookups use the correct key.
+  return formatImportedId(runtimeBId, parsed.txId);
 }
 
 // ─── exportRuntimeToFixture ───────────────────────────────────────────────────
@@ -447,6 +630,8 @@ function subToSubSnapshot(
 
 /**
  * Rewrite "ABMirror:<budgetId>:<runtimeUUID>" → "ABMirror:<alias>:<TX-N>".
+ * Also handles split default compound IDs: "ABMirror:<budgetId>:<runtimeUUID>::default::<acctId>"
+ * → "ABMirror:<alias>:<TX-N>::default::<acctId>".
  * Leaves non-ABMirror values and unknown references as-is.
  */
 function rewriteImportedIdRuntimeToFixture(
@@ -458,7 +643,22 @@ function rewriteImportedIdRuntimeToFixture(
   const parsed = parseImportedId(importedId as string);
   if (!parsed) return importedId;
   const alias = budgetIdToAlias.get(parsed.budgetId);
+  if (!alias) return importedId;
+
+  // Direct lookup (no ::default:: suffix)
   const placeholder = txToPlaceholder.get(parsed.txId);
-  if (!alias || !placeholder) return importedId;
-  return formatImportedId(alias, placeholder);
+  if (placeholder) return formatImportedId(alias, placeholder);
+
+  // Handle split default compound IDs: "<runtimeUUID>::default::<acctId>"
+  const defaultIdx = parsed.txId.indexOf("::default::");
+  if (defaultIdx !== -1) {
+    const baseTxId = parsed.txId.slice(0, defaultIdx);
+    const suffix = parsed.txId.slice(defaultIdx);
+    const basePlaceholder = txToPlaceholder.get(baseTxId);
+    if (basePlaceholder) return formatImportedId(alias, basePlaceholder + suffix);
+  }
+
+  // Alias is known but tx ID is unknown (e.g. stale/ghost reference): rewrite
+  // the budget ID to alias form so the roundtrip is stable for before.yaml files.
+  return formatImportedId(alias, parsed.txId);
 }

@@ -1,0 +1,44 @@
+# After pipeline:
+#   A:recv gets split output: 0.5 * 10000 = 5000 (positive, -0.5 * -10000)
+#   B:recv gets mirror copy of the split output (same amount, same canonical origin)
+#
+# Both A:recv and B:recv imported_ids point to the ORIGINAL A:checking tx (TX-1),
+# not to each other — the canonical origin is preserved through the chain.
+#
+# Global sort:
+#   TX-1: A:checking Coffee (2025-01-15, "#joint #50/50", -10000)
+#   TX-2: A:recv split output (2025-01-15, "#joint #50/50", +5000)
+#   TX-3: B:recv mirror copy (2025-01-15, "#joint #50/50", +5000)
+
+budgets:
+  A:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: "#joint #50/50"
+            category: null
+            cleared: null
+            imported_id: null
+      recv:
+        transactions:
+          - date: "2025-01-15"
+            amount: 5000
+            payee_name: Coffee
+            notes: "#joint #50/50"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"
+  B:
+    accounts:
+      recv:
+        transactions:
+          - date: "2025-01-15"
+            amount: 5000
+            payee_name: Coffee
+            notes: "#joint #50/50"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"

@@ -1,0 +1,71 @@
+# joint-finances-delete: settled Joint budget but TX-7 (#personal_b, United Airlines)
+# has been deleted from checking. Its stale derivative copies remain in
+# joint_expenses, pay_a, and pay_b.
+#
+# Pipeline runs the Joint-only steps (10, 13, 14, pay_b→pay_a, pay_a→pay_b) and
+# should cascade-delete all stale TX-7 derivatives.
+#
+# Global sort: (Joint, checking, ...) < (Joint, joint_expenses, ...) < (Joint, pay_a, ...) < (Joint, pay_b, ...)
+#   TX-1: checking Total Escape Games (2025-01-25)
+#   TX-2: joint_expenses Total Escape Games copy (2025-01-25, valid)
+#   TX-3: joint_expenses United Airlines ghost (2025-01-26, stale)
+#   TX-4: pay_a United Airlines ghost (2025-01-26, stale)
+#   TX-5: pay_b United Airlines ghost (2025-01-26, stale)
+
+budgets:
+  Joint:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-1
+            date: "2025-01-25"
+            amount: -30000
+            payee_name: Total Escape Games
+            notes: null
+            category: Games
+            cleared: null
+            imported_id: null
+            subs: []
+      joint_expenses:
+        offbudget: true
+        transactions:
+          - id: TX-2
+            date: "2025-01-25"
+            amount: -15000
+            payee_name: Total Escape Games
+            notes: null
+            category: Games
+            cleared: null
+            imported_id: "ABMirror:Joint:TX-1::default::acct-Joint-joint_expenses"
+            subs: []
+          - id: TX-3
+            date: "2025-01-26"
+            amount: -2000
+            payee_name: United Airlines
+            notes: "#personal_b"
+            category: Misc
+            cleared: null
+            imported_id: "ABMirror:Joint:GHOST-TX7::default::acct-Joint-joint_expenses"
+            subs: []
+      pay_a:
+        transactions:
+          - id: TX-4
+            date: "2025-01-26"
+            amount: 2000
+            payee_name: United Airlines
+            notes: "#personal_b"
+            category: Misc
+            cleared: null
+            imported_id: "ABMirror:Joint:GHOST-TX7"
+            subs: []
+      pay_b:
+        transactions:
+          - id: TX-5
+            date: "2025-01-26"
+            amount: -2000
+            payee_name: United Airlines
+            notes: "#personal_b"
+            category: Misc
+            cleared: null
+            imported_id: "ABMirror:Joint:GHOST-TX7"
+            subs: []

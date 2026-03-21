@@ -4,21 +4,17 @@ budgets:
     accounts:
       checking:
         transactions:
-          - id: TX-1
-            date: "2025-02-01"
+          - date: "2025-02-01"
             amount: -8500
             payee_name: Groceries
             notes: "#joint #50/50"
             category: Food
             cleared: null
             imported_id: null
-            subs: []
-          - id: TX-2
-            date: "2025-02-10"
+          - date: "2025-02-10"
             amount: -30000
             payee_name: Rent
             notes: "#joint #0/100"
             category: Housing
             cleared: null
             imported_id: null
-            subs: []

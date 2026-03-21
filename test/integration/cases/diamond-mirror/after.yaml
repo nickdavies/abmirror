@@ -1,25 +1,14 @@
-# After running the mirror step:
-#   src:checking → dst:recv (all transactions, no invert)
+# After pipeline:
+#   C:recv has copies from both A and B.
+#
+# Global sort:
+#   TX-1: A:checking Coffee (2025-01-15)
+#   TX-2: B:checking Lunch (2025-01-20)
+#   TX-3: C:recv Coffee copy (2025-01-15)
+#   TX-4: C:recv Lunch copy (2025-01-20)
+
 budgets:
-  dst:
-    accounts:
-      recv:
-        transactions:
-          - date: "2025-01-15"
-            amount: -10000
-            payee_name: Coffee
-            notes: null
-            category: null
-            cleared: null
-            imported_id: "ABMirror:src:TX-3"
-          - date: "2025-01-20"
-            amount: -5000
-            payee_name: Lunch
-            notes: null
-            category: null
-            cleared: null
-            imported_id: "ABMirror:src:TX-4"
-  src:
+  A:
     accounts:
       checking:
         transactions:
@@ -30,6 +19,10 @@ budgets:
             category: null
             cleared: null
             imported_id: null
+  B:
+    accounts:
+      checking:
+        transactions:
           - date: "2025-01-20"
             amount: -5000
             payee_name: Lunch
@@ -37,3 +30,21 @@ budgets:
             category: null
             cleared: null
             imported_id: null
+  C:
+    accounts:
+      recv:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"
+          - date: "2025-01-20"
+            amount: -5000
+            payee_name: Lunch
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:B:TX-2"

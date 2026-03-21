@@ -1,25 +1,15 @@
-# After running the mirror step:
-#   src:checking → dst:recv (all transactions, no invert)
+# After pipeline:
+#   solo:offset gets inverted copies of both checking transactions.
+#   Coffee -10000 → +10000, Lunch -5000 → +5000.
+#
+# Global sort:
+#   TX-1: solo:checking Coffee (2025-01-15, -10000)
+#   TX-2: solo:checking Lunch (2025-01-20, -5000)
+#   TX-3: solo:offset Coffee inverted (2025-01-15, +10000)
+#   TX-4: solo:offset Lunch inverted (2025-01-20, +5000)
+
 budgets:
-  dst:
-    accounts:
-      recv:
-        transactions:
-          - date: "2025-01-15"
-            amount: -10000
-            payee_name: Coffee
-            notes: null
-            category: null
-            cleared: null
-            imported_id: "ABMirror:src:TX-3"
-          - date: "2025-01-20"
-            amount: -5000
-            payee_name: Lunch
-            notes: null
-            category: null
-            cleared: null
-            imported_id: "ABMirror:src:TX-4"
-  src:
+  solo:
     accounts:
       checking:
         transactions:
@@ -37,3 +27,19 @@ budgets:
             category: null
             cleared: null
             imported_id: null
+      offset:
+        transactions:
+          - date: "2025-01-15"
+            amount: 10000
+            payee_name: Coffee
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:solo:TX-1"
+          - date: "2025-01-20"
+            amount: 5000
+            payee_name: Lunch
+            notes: null
+            category: null
+            cleared: null
+            imported_id: "ABMirror:solo:TX-2"

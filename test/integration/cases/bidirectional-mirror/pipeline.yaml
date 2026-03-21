@@ -1,0 +1,22 @@
+# Both use accounts: all to exercise loop prevention — the mirror engine must
+# skip ABMirror copies whose canonical origin is the destination budget (line 82).
+pipeline:
+  - type: mirror
+    source:
+      budget: A
+      accounts: all
+    destination:
+      budget: B
+      account: recv
+    invert: false
+    delete: true
+
+  - type: mirror
+    source:
+      budget: B
+      accounts: all
+    destination:
+      budget: A
+      account: recv
+    invert: false
+    delete: true
