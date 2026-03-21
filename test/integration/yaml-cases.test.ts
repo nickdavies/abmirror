@@ -276,8 +276,26 @@ if (cases.length === 0) {
 
 // ─── Roundtrip test ───────────────────────────────────────────────────────────
 
+/**
+ * Sort transactions by id within each account so comparison is order-independent.
+ */
+function sortFixtureTxsById(snapshot: FixtureSnapshot): FixtureSnapshot {
+  const budgets: Record<string, { accounts: Record<string, { offbudget?: boolean; closed?: boolean; transactions: unknown[] }> }> = {};
+  for (const [alias, budget] of Object.entries(snapshot.budgets)) {
+    const accounts: Record<string, { offbudget?: boolean; closed?: boolean; transactions: unknown[] }> = {};
+    for (const [name, account] of Object.entries(budget.accounts)) {
+      accounts[name] = {
+        ...account,
+        transactions: [...account.transactions].sort((a, b) => a.id.localeCompare(b.id)),
+      };
+    }
+    budgets[alias] = { accounts };
+  }
+  return { budgets } as FixtureSnapshot;
+}
+
 describe("fixture roundtrip", () => {
-  it("importFixtureToRuntime → exportRuntimeToFixture is a no-op for any before.yaml", () => {
+  it("importFixtureToRuntime → exportRuntimeToFixture preserves all transactions", () => {
     const casesWithBefore = cases.filter((c) => existsSync(c.beforePath));
     if (casesWithBefore.length === 0) return;
 
@@ -287,9 +305,9 @@ describe("fixture roundtrip", () => {
       const roundtripped = exportRuntimeToFixture(env, idMap);
 
       expect(
-        roundtripped,
-        `Roundtrip failed for case "${c.name}": import → export changed the fixture`
-      ).toEqual(original);
+        sortFixtureTxsById(roundtripped),
+        `Roundtrip failed for case "${c.name}": import → export changed transaction data`
+      ).toEqual(sortFixtureTxsById(original));
     }
   });
 });

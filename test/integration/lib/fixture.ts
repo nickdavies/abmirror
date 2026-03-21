@@ -1,17 +1,15 @@
 /**
  * Fixture snapshot types and import/export helpers for YAML-based integration tests.
  *
- * On-disk format uses stable placeholder IDs ("TX-1", "TX-2", "TX-3-SUB-1", etc.) and
- * budget aliases (not UUIDs) in imported_id values, making fixtures reproducible across
- * runs and between the in-memory test harness and localdev/snapshot.ts.
+ * Transaction IDs in before.yaml are stable user-defined names (e.g. "TX-1", "TX-2").
+ * These IDs are used directly as runtime IDs during import, so imported_id values in
+ * after.yaml always reference the same IDs that appear in before.yaml.
  *
- * ID assignment algorithm (both export paths use the same rules):
- *  1. Sort all visible top-level transactions globally by
- *     (budgetAlias, accountName, date, notes ?? '', payee_name ?? ''), then by amount.
- *  2. Assign TX-1, TX-2, ... in that order.
- *  3. Within each parent, assign subs as TX-N-SUB-1, TX-N-SUB-2, ...
- *  4. Rewrite imported_id values: "ABMirror:<budgetId>:<txUuid>" →
- *     "ABMirror:<alias>:<TX-N>" using the maps built in step 2–3.
+ * Budget aliases (not UUIDs) are used in imported_id values, making fixtures
+ * reproducible across runs and between the in-memory test harness and localdev/snapshot.ts.
+ *
+ * On export, known transactions keep their original IDs. New engine-created transactions
+ * are assigned fresh TX-N IDs starting from max(existing N) + 1.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -136,13 +134,15 @@ export function diffFixtureSnapshots(
 // ─── IdMap ────────────────────────────────────────────────────────────────────
 
 /**
- * Bidirectional mapping between runtime UUIDs and fixture placeholder IDs.
+ * Bidirectional mapping between runtime IDs and fixture IDs.
+ * For before.yaml transactions these are identity mappings (fixture ID = runtime ID).
+ * For engine-created transactions, maps randomUUID → fresh TX-N.
  * Budget alias ↔ runtime budget ID mappings are also stored here.
  */
 export type IdMap = {
-  /** runtime UUID → "TX-N" or "TX-N-SUB-M" */
+  /** runtime ID → fixture ID */
   txIdToPlaceholder: Map<string, string>;
-  /** "TX-N" or "TX-N-SUB-M" → runtime UUID */
+  /** fixture ID → runtime ID */
   placeholderToTxId: Map<string, string>;
   /** runtime budget ID (e.g. "budget-src") → alias ("src") */
   budgetIdToAlias: Map<string, string>;
@@ -344,10 +344,10 @@ export function runtimeAccountId(budgetAlias: string, accountName: string): stri
 /**
  * Load a FixtureSnapshot into a live RuntimeEnv.
  * Returns the env together with an IdMap so callers can carry the budget↔alias
- * mappings into exportRuntimeToFixture.
+ * and transaction ID mappings into exportRuntimeToFixture.
  *
- * Transaction IDs are assigned sequentially ("test-tx-1", "test-tx-2", …).
- * Pass 1 builds all structures; Pass 2 rewrites imported_id values.
+ * Fixture IDs are used directly as runtime IDs (e.g. "TX-1" stays "TX-1").
+ * Pass 1 builds all structures; Pass 2 rewrites imported_id budget references.
  */
 export function importFixtureToRuntime(fixture: FixtureSnapshot): {
   env: RuntimeEnv;
@@ -361,9 +361,9 @@ export function importFixtureToRuntime(fixture: FixtureSnapshot): {
   };
 
   const env: RuntimeEnv = { budgets: new Map() };
-  let txCounter = 0;
+  const seenIds = new Set<string>();
 
-  // ── Pass 1: allocate all runtime IDs and build structures ──────────────────
+  // ── Pass 1: build structures using fixture IDs directly as runtime IDs ─────
   for (const [alias, budgetSnap] of Object.entries(fixture.budgets)) {
     const budgetId = runtimeBudgetId(alias);
     idMap.budgetIdToAlias.set(budgetId, alias);
@@ -377,19 +377,23 @@ export function importFixtureToRuntime(fixture: FixtureSnapshot): {
       const txMap = new Map<string, RuntimeTransaction>();
 
       for (const txSnap of acctSnap.transactions) {
-        txCounter++;
-        const runtimeId = `test-tx-${txCounter}`;
-        idMap.placeholderToTxId.set(txSnap.id, runtimeId);
-        idMap.txIdToPlaceholder.set(runtimeId, txSnap.id);
+        if (seenIds.has(txSnap.id)) {
+          throw new Error(`Duplicate transaction id "${txSnap.id}" in ${alias}.${accountName}`);
+        }
+        seenIds.add(txSnap.id);
+        idMap.placeholderToTxId.set(txSnap.id, txSnap.id);
+        idMap.txIdToPlaceholder.set(txSnap.id, txSnap.id);
 
         const subs: RuntimeSubTransaction[] = [];
         for (const sub of txSnap.subs) {
-          txCounter++;
-          const subRuntimeId = `test-tx-${txCounter}`;
-          idMap.placeholderToTxId.set(sub.id, subRuntimeId);
-          idMap.txIdToPlaceholder.set(subRuntimeId, sub.id);
+          if (seenIds.has(sub.id)) {
+            throw new Error(`Duplicate transaction id "${sub.id}" in ${alias}.${accountName}`);
+          }
+          seenIds.add(sub.id);
+          idMap.placeholderToTxId.set(sub.id, sub.id);
+          idMap.txIdToPlaceholder.set(sub.id, sub.id);
           subs.push({
-            id: subRuntimeId,
+            id: sub.id,
             date: sub.date,
             amount: sub.amount,
             payee_name: sub.payee_name,
@@ -401,7 +405,7 @@ export function importFixtureToRuntime(fixture: FixtureSnapshot): {
         }
 
         const runtimeTx: RuntimeTransaction = {
-          id: runtimeId,
+          id: txSnap.id,
           date: txSnap.date,
           amount: txSnap.amount,
           payee_name: txSnap.payee_name,
@@ -412,7 +416,7 @@ export function importFixtureToRuntime(fixture: FixtureSnapshot): {
           is_parent: subs.length > 0 ? true : undefined,
           subtransactions: subs.length > 0 ? subs : undefined,
         };
-        txMap.set(runtimeId, runtimeTx);
+        txMap.set(txSnap.id, runtimeTx);
       }
 
       const account: RuntimeAccount = {
@@ -489,11 +493,11 @@ function rewriteImportedIdFixtureToRuntime(
 // ─── exportRuntimeToFixture ───────────────────────────────────────────────────
 
 /**
- * Snapshot a RuntimeEnv back to a FixtureSnapshot using fresh placeholder IDs.
+ * Snapshot a RuntimeEnv back to a FixtureSnapshot.
  *
- * The idMap is used only for its budget alias mappings. Transaction placeholder
- * IDs are always assigned fresh based on the global sort order so that the
- * output matches what localdev/snapshot.ts would produce for the same state.
+ * Known transactions (in idMap from import) keep their original fixture IDs.
+ * New engine-created transactions are assigned fresh TX-N IDs starting from
+ * max(existing N) + 1, in canonical sort order.
  */
 export function exportRuntimeToFixture(
   env: RuntimeEnv,
@@ -536,18 +540,44 @@ export function exportRuntimeToFixture(
     return a.tx.amount - b.tx.amount;
   });
 
-  // Assign TX-N and TX-N-SUB-M placeholders
+  // Build txToPlaceholder: preserve original IDs for known txs, assign fresh for new
   const txToPlaceholder = new Map<string, string>();
-  let txN = 0;
+
+  // Find max existing TX-N number so fresh IDs don't collide
+  let maxN = 0;
+  for (const placeholder of idMap.txIdToPlaceholder.values()) {
+    const m = placeholder.match(/^TX-(\d+)$/);
+    if (m) maxN = Math.max(maxN, parseInt(m[1]!, 10));
+  }
+
+  // First pass: populate known txs from IdMap
   for (const { tx } of allTxs) {
-    txN++;
-    const placeholder = `TX-${txN}`;
-    txToPlaceholder.set(tx.id, placeholder);
-    if (tx.subtransactions) {
-      let subN = 0;
-      for (const sub of tx.subtransactions) {
-        subN++;
-        txToPlaceholder.set(sub.id, `${placeholder}-SUB-${subN}`);
+    const known = idMap.txIdToPlaceholder.get(tx.id);
+    if (known) {
+      txToPlaceholder.set(tx.id, known);
+      if (tx.subtransactions) {
+        for (const sub of tx.subtransactions) {
+          const knownSub = idMap.txIdToPlaceholder.get(sub.id);
+          if (knownSub) txToPlaceholder.set(sub.id, knownSub);
+        }
+      }
+    }
+  }
+
+  // Second pass: assign fresh IDs to new (engine-created) txs
+  for (const { tx } of allTxs) {
+    if (!txToPlaceholder.has(tx.id)) {
+      maxN++;
+      const placeholder = `TX-${maxN}`;
+      txToPlaceholder.set(tx.id, placeholder);
+      if (tx.subtransactions) {
+        let subN = 0;
+        for (const sub of tx.subtransactions) {
+          if (!txToPlaceholder.has(sub.id)) {
+            subN++;
+            txToPlaceholder.set(sub.id, `${placeholder}-SUB-${subN}`);
+          }
+        }
       }
     }
   }

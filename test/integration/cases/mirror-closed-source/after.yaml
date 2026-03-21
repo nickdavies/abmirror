@@ -14,14 +14,14 @@ budgets:
             notes: null
             category: null
             cleared: null
-            imported_id: "ABMirror:src:TX-3"
+            imported_id: "ABMirror:src:TX-2"
           - date: "2025-01-15"
             amount: -10000
             payee_name: Lunch
             notes: null
             category: null
             cleared: null
-            imported_id: "ABMirror:src:TX-4"
+            imported_id: "ABMirror:src:TX-3"
   src:
     accounts:
       checking:

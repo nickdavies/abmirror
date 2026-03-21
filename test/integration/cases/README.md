@@ -28,7 +28,7 @@ budgets:
         offbudget: true       # optional; omit if false (default)
         closed: true          # optional; omit if false (default)
         transactions:
-          - id: TX-1          # placeholder (see ID normalization below)
+          - id: TX-1          # stable user-defined ID (see Transaction IDs below)
             date: "2025-01-15"
             amount: -10000    # in cents (negative = expense)
             payee_name: Coffee
@@ -72,23 +72,15 @@ pipeline:
 
 ---
 
-## ID normalization
+## Transaction IDs
 
-Placeholder IDs (`TX-1`, `TX-2`, `TX-3-SUB-1`, …) are assigned by sorting all **visible** (non-tombstoned, non-child) top-level transactions globally in each snapshot by:
+Transaction IDs in `before.yaml` (e.g. `TX-1`, `TX-2`, `TX-3-SUB-1`) are **stable user-defined names**. They are used directly as runtime IDs during import, so `imported_id` values in `after.yaml` always reference the same IDs that appear in `before.yaml`.
 
-```
-(budgetAlias, accountName, date, notes ?? '', payee_name ?? ''), then by amount
-```
+New transactions created by the engine during a test run are assigned fresh `TX-N` IDs starting from `max(existing N) + 1`.
 
-Transactions are numbered TX-1, TX-2, … in that order. Subtransactions within a parent `TX-N` are numbered `TX-N-SUB-1`, `TX-N-SUB-2`, ….
+**`imported_id` format** — ABMirror references use budget aliases (not UUIDs): `"ABMirror:<budgetAlias>:<txId>"`. Since `imported_id` always points to the root source transaction, the `<txId>` is always an ID from `before.yaml`.
 
-**`imported_id` rewriting** — ABMirror references (`ABMirror:<budgetId>:<txUuid>`) are rewritten to use:
-- the budget **alias** instead of its internal UUID
-- the transaction **placeholder** (TX-N) instead of its UUID
-
-So `"ABMirror:budget-src:test-tx-1"` becomes `"ABMirror:src:TX-3"`.
-
-**Important**: fixture files must list transactions in canonical sort order (earliest date first within each account, budgets in alphabetical order). If transactions are out of order the roundtrip test will fail and alert you.
+Transaction order within each account does not matter — the roundtrip test compares by content, not YAML ordering.
 
 ---
 
@@ -134,4 +126,4 @@ The snapshot CLI reads `localdev/config.yaml` by default. Pass `--config PATH` t
 
 ## Roundtrip test
 
-Separately from the per-case assertions, there is a `fixture roundtrip` test that verifies `importFixtureToRuntime(before.yaml) → exportRuntimeToFixture` equals the original `before.yaml` for every case. This ensures the import/export helpers are symmetric and the fixture is in canonical form. If this fails, check that your transactions are listed in the correct sort order.
+Separately from the per-case assertions, there is a `fixture roundtrip` test that verifies `importFixtureToRuntime(before.yaml) → exportRuntimeToFixture` produces the same transactions with the same fields for every case. This catches data corruption or loss in the import/export helpers. The comparison is order-independent — transaction ordering in the YAML does not matter.

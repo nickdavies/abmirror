@@ -1,5 +1,4 @@
 # DESIRED settled state (content-based matching, no id fields).
-# imported_id is omitted where the canonical ID contains runtime UUIDs (e.g., split-default outputs).
 
 budgets:
   A:
@@ -56,7 +55,7 @@ budgets:
             notes: "#joint #50/50"
             category: Groceries
             cleared: null
-            imported_id: "ABMirror:B:TX-11"
+            imported_id: "ABMirror:B:TX-4"
           - date: "2025-01-20"
             amount: 2000
             payee_name: costco
@@ -77,7 +76,7 @@ budgets:
             notes: "#personal_b"
             category: null
             cleared: null
-            imported_id: "ABMirror:Joint:TX-24"
+            imported_id: "ABMirror:Joint:TX-7"
       savings:
         transactions: []
   B:
@@ -127,7 +126,7 @@ budgets:
             notes: "#joint #50/50"
             category: Groceries
             cleared: null
-            imported_id: "ABMirror:B:TX-11"
+            imported_id: "ABMirror:B:TX-4"
           - date: "2025-01-20"
             amount: -2000
             payee_name: costco
@@ -148,7 +147,7 @@ budgets:
             notes: "#personal_b"
             category: null
             cleared: null
-            imported_id: "ABMirror:Joint:TX-24"
+            imported_id: "ABMirror:Joint:TX-7"
       savings:
         transactions: []
   Joint:
@@ -177,7 +176,7 @@ budgets:
             notes: "#joint #50/50"
             category: null
             cleared: null
-            imported_id: "ABMirror:B:TX-11"
+            imported_id: "ABMirror:B:TX-4"
       checking:
         transactions:
           - date: "2025-01-25"
@@ -224,7 +223,7 @@ budgets:
             notes: "#joint #50/50"
             category: GroceriesJoint
             cleared: null
-            imported_id: "ABMirror:B:TX-11"
+            imported_id: "ABMirror:B:TX-4"
           - date: "2025-01-20"
             amount: 2000
             payee_name: costco
@@ -245,7 +244,7 @@ budgets:
             notes: "#personal_b"
             category: Misc
             cleared: null
-            imported_id: "ABMirror:Joint:TX-24"
+            imported_id: "ABMirror:Joint:TX-7"
       pay_b:
         transactions:
           - date: "2025-01-15"
@@ -261,7 +260,7 @@ budgets:
             notes: "#joint #50/50"
             category: GroceriesJoint
             cleared: null
-            imported_id: "ABMirror:B:TX-11"
+            imported_id: "ABMirror:B:TX-4"
           - date: "2025-01-20"
             amount: -2000
             payee_name: costco
@@ -282,4 +281,4 @@ budgets:
             notes: "#personal_b"
             category: Misc
             cleared: null
-            imported_id: "ABMirror:Joint:TX-24"
+            imported_id: "ABMirror:Joint:TX-7"

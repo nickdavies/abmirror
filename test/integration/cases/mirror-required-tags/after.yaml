@@ -1,9 +1,4 @@
 # Only TX-1 (Groceries, #joint) is mirrored. TX-2 and TX-3 are skipped.
-# Global sort: (dst, recv) < (src, checking)
-#   TX-1: dst:recv Groceries copy
-#   TX-2: src:checking Groceries original
-#   TX-3: src:checking Coffee
-#   TX-4: src:checking Gas
 
 budgets:
   src:
@@ -41,4 +36,4 @@ budgets:
             notes: "#joint"
             category: null
             cleared: null
-            imported_id: "ABMirror:src:TX-2"
+            imported_id: "ABMirror:src:TX-1"
