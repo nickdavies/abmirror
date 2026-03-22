@@ -5,7 +5,7 @@
  *  - No duplicate account names in any budget (fail fast with actionable dump)
  *  - All budget aliases in pipeline exist in config
  *  - All account IDs/names (source and destination) exist in their budgets
- *  - All category IDs in category mappings exist
+ *  - All category names in category mappings exist
  *  - Same-budget mirror steps don't have overlapping source/dest accounts
  *  - Tag strings start with #
  *
@@ -377,22 +377,22 @@ async function validateMirrorStep(
     }
   }
 
-  // Validate category mappings
+  // Validate category mappings (keys/values are category names, not IDs)
   if (step.categoryMapping && Object.keys(step.categoryMapping).length > 0) {
     const sourceCategories = await getCategoriesForBudget(sourceAlias, manager);
-    const sourceCatIds = new Set(sourceCategories.map((c) => c.id));
+    const sourceCatNames = new Set(sourceCategories.map((c) => c.name));
     const destCategories = await getCategoriesForBudget(destAlias, manager);
-    const destCatIds = new Set(destCategories.map((c) => c.id));
+    const destCatNames = new Set(destCategories.map((c) => c.name));
 
-    for (const [srcCatId, destCatId] of Object.entries(step.categoryMapping)) {
-      if (!sourceCatIds.has(srcCatId)) {
+    for (const [srcCatName, destCatName] of Object.entries(step.categoryMapping)) {
+      if (!sourceCatNames.has(srcCatName)) {
         errors.push(
-          `${label}: categoryMapping source category "${srcCatId}" not found in budget "${sourceAlias}"`
+          `${label}: categoryMapping source category "${srcCatName}" not found in budget "${sourceAlias}"`
         );
       }
-      if (!destCatIds.has(destCatId)) {
+      if (!destCatNames.has(destCatName)) {
         errors.push(
-          `${label}: categoryMapping destination category "${destCatId}" not found in budget "${destAlias}"`
+          `${label}: categoryMapping destination category "${destCatName}" not found in budget "${destAlias}"`
         );
       }
     }

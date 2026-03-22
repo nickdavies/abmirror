@@ -21,6 +21,7 @@ import { createMirrorEngine, buildMirrorOpts } from "../engines/mirror-engine";
 import { createSplitEngine, buildSplitOpts } from "../engines/split-engine";
 import { runPreflight } from "./preflight";
 import { buildGlobalTxIndex } from "../diff/global-tx-index";
+import { formatLocalDate, lookbackStart } from "../util/dates";
 
 export interface RunOptions {
   config: Config;
@@ -62,10 +63,15 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
         ? config.pipeline.slice(stepIndex, stepIndex + 1)
         : config.pipeline;
 
+    // Compute date window once for the entire pipeline run
+    const startDate = lookbackStart(config.lookbackDays);
+    const endDate = formatLocalDate(new Date());
+
     // Pre-pass: build both indexes for loop prevention and root-existence delete semantics.
     const { globalTxIndex, rootTxIndex } = await buildGlobalTxIndex(
       Object.keys(config.budgets),
-      config.lookbackDays,
+      startDate,
+      endDate,
       manager
     );
 
@@ -91,7 +97,8 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
         const opts = await buildSplitOpts(
           step,
           {
-            lookbackDays: config.lookbackDays,
+            startDate,
+            endDate,
             dryRun,
             reporter,
             stepIndex: displayIndex,
@@ -109,7 +116,8 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
         const opts = await buildMirrorOpts(
           step,
           {
-            lookbackDays: config.lookbackDays,
+            startDate,
+            endDate,
             dryRun,
             reporter,
             globalTxIndex,
@@ -136,8 +144,15 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
     success = false;
     throw err;
   } finally {
-    await reporter.send(success);
+    const notifyOk = await reporter.send(success);
     await manager.shutdown();
+    // Only throw for notification failure when the pipeline itself succeeded.
+    // If the pipeline threw, that error is already propagating.
+    if (success && !notifyOk) {
+      throw new Error(
+        "Pipeline completed but Pushover notification failed — check logs above for details"
+      );
+    }
   }
 }
 
@@ -162,7 +177,10 @@ export async function validateConfig(
       throw new PreflightError(result.errors);
     }
     console.log("Validation passed.");
-    await reporter.send(true);
+    const notifyOk = await reporter.send(true);
+    if (!notifyOk) {
+      console.error("Warning: Pushover notification failed — check logs above");
+    }
   } finally {
     await manager.shutdown();
   }

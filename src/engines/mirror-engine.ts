@@ -13,7 +13,8 @@ import type { EngineOpts, ProposeResult, SyncEngine } from "../diff/sync-engine"
 export async function buildMirrorOpts(
   step: MirrorStep,
   opts: {
-    lookbackDays: number;
+    startDate: string;
+    endDate: string;
     dryRun: boolean;
     reporter?: EngineOpts["reporter"];
     globalTxIndex?: EngineOpts["globalTxIndex"];
@@ -43,7 +44,8 @@ export async function buildMirrorOpts(
     destBudgetAlias: step.destination.budget,
     destBudgetId: destInfo.budgetId,
     destAccountIds: [destResolved.id],
-    lookbackDays: opts.lookbackDays,
+    startDate: opts.startDate,
+    endDate: opts.endDate,
     dryRun: opts.dryRun,
     reporter: opts.reporter,
     stepType: "mirror",

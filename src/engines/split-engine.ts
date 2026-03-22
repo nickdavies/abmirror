@@ -14,7 +14,8 @@ import type { EngineOpts, ProposeResult, SyncEngine } from "../diff/sync-engine"
 export async function buildSplitOpts(
   step: SplitStep,
   opts: {
-    lookbackDays: number;
+    startDate: string;
+    endDate: string;
     dryRun: boolean;
     reporter?: EngineOpts["reporter"];
     stepIndex?: number;
@@ -71,7 +72,8 @@ export async function buildSplitOpts(
     destBudgetAlias: step.budget,
     destBudgetId: budgetInfo.budgetId,
     destAccountIds,
-    lookbackDays: opts.lookbackDays,
+    startDate: opts.startDate,
+    endDate: opts.endDate,
     dryRun: opts.dryRun,
     reporter: opts.reporter,
     stepIndex: opts.stepIndex,

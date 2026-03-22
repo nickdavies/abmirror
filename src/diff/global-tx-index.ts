@@ -16,19 +16,6 @@ export type GlobalTxIndex = Map<string, Set<string>>;
 /** key: budgetId  →  Set<txId> for all non-ABMirror (root/original) transactions */
 export type RootTxIndex = Map<string, Set<string>>;
 
-function formatLocalDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function lookbackStart(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return formatLocalDate(d);
-}
-
 /**
  * Scan all budgets within the lookback window and build:
  * - globalTxIndex: where each ABMirror canonical source tx has been copied
@@ -36,13 +23,12 @@ function lookbackStart(days: number): string {
  */
 export async function buildGlobalTxIndex(
   budgetAliases: string[],
-  lookbackDays: number,
+  startDate: string,
+  endDate: string,
   manager: BudgetManager
 ): Promise<{ globalTxIndex: GlobalTxIndex; rootTxIndex: RootTxIndex }> {
   const globalTxIndex: GlobalTxIndex = new Map();
   const rootTxIndex: RootTxIndex = new Map();
-  const startDate = lookbackStart(lookbackDays);
-  const endDate = formatLocalDate(new Date());
 
   for (const alias of budgetAliases) {
     const budgetInfo = await manager.open(alias);

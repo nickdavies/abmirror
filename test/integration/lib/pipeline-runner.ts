@@ -22,8 +22,9 @@ import { resetChangeCount, mockState } from "./actual-mock-state";
 
 // ─── EngineOpts builders ──────────────────────────────────────────────────────
 
-/** Large lookback so all test transactions fall within the window. */
-const LOOKBACK_DAYS = 36500;
+/** Wide date window so all test transactions fall within scope. */
+const START_DATE = "1900-01-01";
+const END_DATE = "2099-12-31";
 
 function resolveAccountId(
   budget: RuntimeBudget,
@@ -112,7 +113,8 @@ function buildMirrorOptsInMemory(
     destBudgetAlias: step.destination.budget,
     destBudgetId: dstBudget.id,
     destAccountIds: [destAccountId],
-    lookbackDays: LOOKBACK_DAYS,
+    startDate: START_DATE,
+    endDate: END_DATE,
     dryRun: false,
     stepType: "mirror",
     deleteEnabled: step.delete ?? false,
@@ -161,7 +163,8 @@ function buildSplitOptsInMemory(
     destBudgetAlias: step.budget,
     destBudgetId: budget.id,
     destAccountIds,
-    lookbackDays: LOOKBACK_DAYS,
+    startDate: START_DATE,
+    endDate: END_DATE,
     dryRun: false,
     stepType: "split",
     deleteEnabled: step.delete ?? false,

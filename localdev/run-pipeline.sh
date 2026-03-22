@@ -76,6 +76,7 @@ TMP_CONFIG="$(mktemp)"
 cleanup() {
   rm -f "${TMP_CONFIG}"
   [[ "${CLEANUP_PIPELINE}" -eq 1 ]] && rm -f "${PIPELINE_TMP}"
+  true
 }
 trap cleanup EXIT
 

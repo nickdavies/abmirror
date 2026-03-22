@@ -26,7 +26,8 @@ export interface EngineOpts {
   destBudgetAlias: string;
   destBudgetId: string;
   destAccountIds: string[];
-  lookbackDays: number;
+  startDate: string;
+  endDate: string;
   dryRun: boolean;
   reporter?: import("../notify/reporter").RunReporter;
   stepIndex?: number;
@@ -74,27 +75,12 @@ export interface SyncEngine {
   getDestAccountIds(opts: EngineOpts): string[];
 }
 
-function formatLocalDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function lookbackStart(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return formatLocalDate(d);
-}
-
 export async function runSyncEngine(
   engine: SyncEngine,
   opts: EngineOpts,
   manager: BudgetManager
 ): Promise<void> {
-  const { sourceBudgetId, lookbackDays, dryRun, reporter } = opts;
-  const startDate = lookbackStart(lookbackDays);
-  const endDate = formatLocalDate(new Date());
+  const { sourceBudgetId, startDate, endDate, dryRun, reporter } = opts;
 
   // --- Phase 1: Read source transactions ---
   await manager.open(opts.sourceBudgetAlias);

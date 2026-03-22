@@ -34,7 +34,8 @@ const baseOpts = {
   destBudgetAlias: "dst",
   destBudgetId: DEST_BUDGET,
   destAccountIds: [DEST_ACCOUNT],
-  lookbackDays: 60,
+  startDate: "2024-11-17",
+  endDate: "2025-01-15",
   dryRun: false,
   stepType: "mirror" as const,
 };

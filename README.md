@@ -93,10 +93,11 @@ npx ab-mirror validate --config config.yaml
 npx ab-mirror list-accounts --config config.yaml
 
 # Run the pipeline (dry-run first to simulate)
-npx ab-mirror run --config config.yaml --dry-run
+npx ab-mirror run --config config.yaml --dry-run --max-changes 0
 
-# Run for real
-npx ab-mirror run --config config.yaml
+# Run for real (--max-changes 0 disables the circuit breaker for initial sync;
+# omit on subsequent runs to use the default limit of 100)
+npx ab-mirror run --config config.yaml --max-changes 0
 
 # Run only a specific pipeline step (1-based index)
 npx ab-mirror run --config config.yaml --step 1
@@ -113,11 +114,15 @@ docker run -d --rm -p 5006:5006 --name actual-server actualbudget/actual-server:
 Or with docker compose (port 5007 to avoid conflicts with other services):
 
 ```bash
-docker compose -f test/integration/docker-compose.yml up -d
+docker compose -f localdev/docker-compose.yml up -d
 # Server will be at http://localhost:5007
 ```
 
 Then create a budget in the Actual web UI, enable sync, and use its sync ID in your config.
+
+## Local development
+
+For testing with real budget data, see [`localdev/README.md`](localdev/README.md) — it bootstraps a Docker Actual server from your exported budget zips and provides tools for running pipelines.
 
 ## Development
 
@@ -125,11 +130,11 @@ Then create a budget in the Actual web UI, enable sync, and use its sync ID in y
 # Type check
 npm run typecheck
 
-# Unit tests
+# Unit + integration tests (in-memory mock, no Docker required)
 npm test
 
-# Integration tests (starts Actual server in Docker, runs full pipeline)
-npm run test:integration
+# End-to-end tests (starts Actual server in Docker, runs full pipeline)
+npm run test:e2e
 ```
 
 ## Config reference
@@ -139,16 +144,17 @@ npm run test:integration
 | `server.url` | Actual sync server URL |
 | `server.password` | Optional. Server password. Use `${AB_MIRROR_SERVER_PASSWORD}` or leave unset to use env. |
 | `dataDir` | Local directory for budget file cache |
-| `budgets` | Map of alias → `{ syncId, encrypted?, key? }`. Use `key: "${AB_MIRROR_KEY_<ALIAS>}"` for encrypted budgets, or set env var. |
+| `budgets` | Map of alias → `{ syncId, encrypted?, key? }`. Use `key: "${AB_MIRROR_KEY_<ALIAS>}"` for encrypted budgets, or set env var. The `key` is the E2E encryption passphrase (set in Actual UI under Settings > Encryption), **not** the server login password. |
 | `pipeline` | Array of split/mirror steps |
 | `lookbackDays` | How far back to scan transactions (default: 90). **Warning:** transactions older than this window are invisible to ABMirror — they won't be created, updated, or deleted. If you shorten this value, mirror copies of older transactions become unmanaged (not deleted, just ignored). |
+| `maxChangesPerStep` | Max changes (add + update + delete) any single step can make before aborting (default: 100, 0 = unlimited). On your first run, set to `0` or use `--max-changes 0` since every in-scope transaction will be new. |
 | `notify` | Optional push notifications (Pushover). `onSuccess: false` (default) = only notify on failure or warnings. Use `${AB_MIRROR_PUSHOVER_USER}` and `${AB_MIRROR_PUSHOVER_TOKEN}` for credentials. |
 
 **Notify**: When configured, sends run summaries and non-fatal warnings (e.g. multi-tag skipped, closed accounts in scope) to Pushover. The full report is always logged to stdout; Pushover messages may be truncated with a pointer to check logs.
 
-**Split step**: Splits tagged transactions from source accounts into destination accounts based on tag multipliers. Tags are always exclusive: when a transaction matches multiple action tags, it is skipped (reported via notifier). For multiple destinations, add multiple split steps.
+**Split step**: Splits tagged transactions from source accounts into destination accounts based on tag multipliers. Tags are always exclusive: when a transaction matches multiple action tags, it is skipped (reported via notifier). For multiple destinations, add multiple split steps. Options: `delete` (remove stale copies when source tx is deleted, default: false), `updateFields` (sync payee/notes/category/cleared on existing copies, default: false), `default` (route transactions matching no tag to a destination with a multiplier).
 
-**Mirror step**: Copies transactions from source budget/accounts to a destination budget/account. Options: `invert`, `delete`, `categoryMapping`.
+**Mirror step**: Copies transactions from source budget/accounts to a destination budget/account. Options: `invert` (negate amount), `delete` (remove stale copies, default: false), `updateFields` (sync payee/notes/category/cleared, default: false), `categoryMapping` (remap category IDs across budgets).
 
 ## Known limitation: Config changes can strand transactions
 
