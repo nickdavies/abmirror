@@ -1,0 +1,34 @@
+# After pipeline (delete: false):
+#   B:recv: Ghost survives (not deleted), Starbucks mirror copy added
+#   A:checking: unchanged
+
+budgets:
+  B:
+    accounts:
+      recv:
+        transactions:
+          - date: "2025-01-10"
+            amount: -5000
+            payee_name: Panera
+            notes: "Tuesday lunch"
+            category: Dining Out
+            cleared: null
+            imported_id: "ABMirror:A:GHOST-01"
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-2"
+  A:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
+            cleared: null
+            imported_id: null

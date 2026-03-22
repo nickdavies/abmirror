@@ -95,6 +95,12 @@ export function resolveAccountsSpec(
   spec: AccountsSpec,
   budgetAlias: string
 ): ResolveResult {
+  const knownAccounts = accounts.map((a) => a.name).sort();
+  const knownSuffix =
+    knownAccounts.length > 0
+      ? ` Known accounts in "${budgetAlias}": ${knownAccounts.join(", ")}`
+      : "";
+
   const nameToId = buildNameToIdMap(accounts);
   const idSet = buildIdSet(accounts);
 
@@ -117,7 +123,7 @@ export function resolveAccountsSpec(
       if (id === null) {
         return {
           ok: false,
-          error: `Account "${v}" not found in budget "${budgetAlias}"`,
+          error: `Account "${v}" not found in budget "${budgetAlias}".${knownSuffix}`,
         };
       }
       resolved.push(id);
@@ -130,7 +136,7 @@ export function resolveAccountsSpec(
   if (id === null) {
     return {
       ok: false,
-      error: `Account "${spec}" not found in budget "${budgetAlias}"`,
+      error: `Account "${spec}" not found in budget "${budgetAlias}".${knownSuffix}`,
     };
   }
   return { ok: true, spec: id };

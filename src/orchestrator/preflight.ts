@@ -5,13 +5,14 @@
  *  - No duplicate account names in any budget (fail fast with actionable dump)
  *  - All budget aliases in pipeline exist in config
  *  - All account IDs/names (source and destination) exist in their budgets
- *  - All category IDs in category mappings exist
+ *  - All category names in category mappings exist
  *  - Same-budget mirror steps don't have overlapping source/dest accounts
  *  - Tag strings start with #
  *
  * All errors are collected and reported together.
  */
 import * as actual from "@actual-app/api";
+import { q, aqlQuery } from "@actual-app/api";
 import type { AccountsSpec, Config, MirrorStep, SplitStep } from "../config/schema";
 import { selectAccounts } from "../selector/index";
 import type { BudgetManager } from "../client/budget-manager";
@@ -23,10 +24,12 @@ import {
   resolveAccountId,
 } from "../util/account-resolver";
 import type { RunReporter } from "../notify/reporter";
+import { validatePipelineGraph, type ResolvedStep } from "../graph/validator";
 
 export interface PreflightResult {
   ok: boolean;
   errors: string[];
+  resolvedSteps: ResolvedStep[];
 }
 
 export async function runPreflight(
@@ -70,7 +73,7 @@ export async function runPreflight(
   }
 
   if (errors.length > 0) {
-    return { ok: false, errors };
+    return { ok: false, errors, resolvedSteps: [] };
   }
 
   // --- Step 2: Download all referenced budgets ---
@@ -78,12 +81,15 @@ export async function runPreflight(
     try {
       await manager.download(alias);
     } catch (err) {
-      errors.push(`Failed to download budget "${alias}": ${String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      const cause = err instanceof Error && err.cause ? ` (cause: ${String(err.cause)})` : "";
+      const stack = err instanceof Error && err.stack ? `\n  ${err.stack.split("\n").slice(1, 4).join("\n  ")}` : "";
+      errors.push(`Failed to download budget "${alias}": ${msg}${cause}${stack}`);
     }
   }
 
   if (errors.length > 0) {
-    return { ok: false, errors };
+    return { ok: false, errors, resolvedSteps: [] };
   }
 
   // --- Step 2b: Check for duplicate account names (fail fast with actionable dump) ---
@@ -92,23 +98,40 @@ export async function runPreflight(
     const dup = checkDuplicateNames(accounts, alias);
     if (dup) {
       errors.push(formatDuplicateErrorForUser(dup));
-      return { ok: false, errors };
+      return { ok: false, errors, resolvedSteps: [] };
     }
   }
 
   // --- Step 3: Validate each step's accounts and category mappings ---
+  const resolvedSteps: ResolvedStep[] = [];
+
   for (let i = 0; i < config.pipeline.length; i++) {
     const step = config.pipeline[i]!;
     const label = `step[${i}] (${step.type})`;
 
     if (step.type === "split") {
-      await validateSplitStep(step, label, manager, errors, i, reporter);
+      const resolved = await validateSplitStep(step, label, manager, errors, i, reporter);
+      if (resolved) resolvedSteps.push(resolved);
     } else if (step.type === "mirror") {
-      await validateMirrorStep(step, label, manager, errors, i, reporter);
+      const resolved = await validateMirrorStep(step, label, manager, errors, i, reporter);
+      if (resolved) resolvedSteps.push(resolved);
     }
   }
 
-  return { ok: errors.length === 0, errors };
+  // --- Step 4: Graph-based loop validation ---
+  if (errors.length === 0) {
+    const violations = validatePipelineGraph(resolvedSteps);
+    for (const v of violations) {
+      errors.push(
+        `Invalid pipeline loop: exit node(s) [${v.offendingExitNodes.join(", ")}] ` +
+          `in SCC [${v.sccNodes.join(", ")}] have outgoing edges outside the cycle ` +
+          `but are not entry points. Transactions could flow out of this cycle in an ` +
+          `uncontrolled way (entry nodes: [${v.entryNodes.join(", ")}]).`
+      );
+    }
+  }
+
+  return { ok: errors.length === 0, errors, resolvedSteps };
 }
 
 async function getAccountsForBudget(
@@ -117,6 +140,16 @@ async function getAccountsForBudget(
 ): Promise<ActualAccount[]> {
   await manager.open(alias);
   return (await actual.getAccounts()) as ActualAccount[];
+}
+
+/** Returns IDs of accounts in the currently-open budget that have bank sync enabled. */
+async function getBankSyncedAccountIds(): Promise<Set<string>> {
+  const { data } = (await aqlQuery(
+    q("accounts")
+      .select(["id", "account_sync_source"])
+      .filter({ account_sync_source: { $ne: null } })
+  )) as { data: Array<{ id: string; account_sync_source: string }> };
+  return new Set(data.map((a) => a.id));
 }
 
 async function getCategoriesForBudget(
@@ -176,7 +209,7 @@ async function validateSplitStep(
   errors: string[],
   stepIndex: number,
   reporter?: RunReporter
-): Promise<void> {
+): Promise<ResolvedStep | null> {
   const accounts = await getAccountsForBudget(step.budget, manager);
 
   // Resolve source accounts (names -> IDs)
@@ -187,29 +220,10 @@ async function validateSplitStep(
   );
   if (!srcResult.ok) {
     errors.push(`${label}: ${srcResult.error}`);
-    return;
+    return null;
   }
 
-  const selectedSourceAccounts = selectAccounts(accounts, srcResult.spec!);
-  if (reporter && selectedSourceAccounts.length === 0) {
-    reporter.warn("preflight.emptySourceScope", {
-      stepIndex,
-      stepType: "split",
-      spec: step.source.accounts,
-    });
-  }
-  for (const a of selectedSourceAccounts) {
-    if (a.closed && reporter) {
-      reporter.warn("preflight.closedAccountInScope", {
-        stepIndex,
-        budget: step.budget,
-        accountName: a.name,
-        accountId: a.id,
-      });
-    }
-  }
-
-  // Validate destination accounts referenced in tag actions
+  // Resolve destination accounts first (needed for broad-spec exclude)
   const destIds = new Set<string>();
   for (const [tag, action] of Object.entries(step.tags)) {
     const destResult = resolveAccountId(
@@ -233,13 +247,58 @@ async function validateSplitStep(
     }
   }
 
-  // Split source and destination must not overlap
+  if (step.default) {
+    const defResult = resolveAccountId(
+      accounts,
+      step.default.destination_account,
+      step.budget
+    );
+    if (defResult.ok) {
+      destIds.add(defResult.id);
+    }
+  }
+
+  // Check for bank-synced destination accounts
+  const bankSynced = await getBankSyncedAccountIds();
+  for (const id of destIds) {
+    if (bankSynced.has(id)) {
+      const name = accounts.find((a) => a.id === id)?.name ?? id;
+      errors.push(
+        `${label}: destination account "${name}" has bank sync enabled — ` +
+          `bank sync will overwrite imported_id and break ABMirror tracking. ` +
+          `Unlink bank sync from this account in Actual before running ABMirror`
+      );
+    }
+  }
+
+  const isBroadSpec =
+    step.source.accounts === "all" ||
+    step.source.accounts === "on-budget" ||
+    step.source.accounts === "off-budget";
+  const excludeIds = isBroadSpec ? destIds : undefined;
+  const selectedSourceAccounts = selectAccounts(accounts, srcResult.spec!, excludeIds);
+  if (reporter && selectedSourceAccounts.length === 0) {
+    reporter.warn("preflight.emptySourceScope", {
+      stepIndex,
+      stepType: "split",
+      spec: step.source.accounts,
+    });
+  }
+  // Split source and destination must not overlap (when explicit spec, dest in source = error)
   const sourceIds = new Set(selectedSourceAccounts.map((a) => a.id));
   if (hasSourceDestOverlap(sourceIds, destIds)) {
     errors.push(
       `${label}: split destination account is in source scope -- use explicit source accounts or exclude it`
     );
+    return null;
   }
+
+  return {
+    type: "split",
+    budgetAlias: step.budget,
+    srcAccountIds: [...sourceIds],
+    dstAccountIds: [...destIds],
+  };
 }
 
 async function validateMirrorStep(
@@ -249,7 +308,7 @@ async function validateMirrorStep(
   errors: string[],
   stepIndex: number,
   reporter?: RunReporter
-): Promise<void> {
+): Promise<ResolvedStep | null> {
   const sourceAlias = step.source.budget;
   const destAlias = step.destination.budget;
 
@@ -264,7 +323,7 @@ async function validateMirrorStep(
   );
   if (!srcResult.ok) {
     errors.push(`${label}: ${srcResult.error}`);
-    return;
+    return null;
   }
 
   const selectedSourceAccounts = selectAccounts(sourceAccounts, srcResult.spec!);
@@ -275,16 +334,6 @@ async function validateMirrorStep(
       spec: step.source.accounts,
     });
   }
-  for (const a of selectedSourceAccounts) {
-    if (a.closed && reporter) {
-      reporter.warn("preflight.closedAccountInScope", {
-        stepIndex,
-        budget: sourceAlias,
-        accountName: a.name,
-        accountId: a.id,
-      });
-    }
-  }
 
   // Resolve destination account
   const destResult = resolveAccountId(
@@ -294,7 +343,7 @@ async function validateMirrorStep(
   );
   if (!destResult.ok) {
     errors.push(`${label}: ${destResult.error}`);
-    return;
+    return null;
   }
   const destAccount = destAccounts.find((x) => x.id === destResult.id);
   if (destAccount?.closed && reporter) {
@@ -306,6 +355,17 @@ async function validateMirrorStep(
     });
   }
 
+  // Check for bank-synced destination account
+  const destBankSynced = await getBankSyncedAccountIds();
+  if (destBankSynced.has(destResult.id)) {
+    const name = destAccount?.name ?? destResult.id;
+    errors.push(
+      `${label}: destination account "${name}" has bank sync enabled — ` +
+        `bank sync will overwrite imported_id and break ABMirror tracking. ` +
+          `Unlink bank sync from this account in Actual before running ABMirror`
+    );
+  }
+
   // Same-budget: source accounts and destination must not overlap
   if (sourceAlias === destAlias) {
     const sourceIds = new Set(selectedSourceAccounts.map((a) => a.id));
@@ -313,27 +373,36 @@ async function validateMirrorStep(
       errors.push(
         `${label}: same-budget mirror where source accounts include destination account -- they must be distinct`
       );
+      return null;
     }
   }
 
-  // Validate category mappings
+  // Validate category mappings (keys/values are category names, not IDs)
   if (step.categoryMapping && Object.keys(step.categoryMapping).length > 0) {
     const sourceCategories = await getCategoriesForBudget(sourceAlias, manager);
-    const sourceCatIds = new Set(sourceCategories.map((c) => c.id));
+    const sourceCatNames = new Set(sourceCategories.map((c) => c.name));
     const destCategories = await getCategoriesForBudget(destAlias, manager);
-    const destCatIds = new Set(destCategories.map((c) => c.id));
+    const destCatNames = new Set(destCategories.map((c) => c.name));
 
-    for (const [srcCatId, destCatId] of Object.entries(step.categoryMapping)) {
-      if (!sourceCatIds.has(srcCatId)) {
+    for (const [srcCatName, destCatName] of Object.entries(step.categoryMapping)) {
+      if (!sourceCatNames.has(srcCatName)) {
         errors.push(
-          `${label}: categoryMapping source category "${srcCatId}" not found in budget "${sourceAlias}"`
+          `${label}: categoryMapping source category "${srcCatName}" not found in budget "${sourceAlias}"`
         );
       }
-      if (!destCatIds.has(destCatId)) {
+      if (!destCatNames.has(destCatName)) {
         errors.push(
-          `${label}: categoryMapping destination category "${destCatId}" not found in budget "${destAlias}"`
+          `${label}: categoryMapping destination category "${destCatName}" not found in budget "${destAlias}"`
         );
       }
     }
   }
+
+  return {
+    type: "mirror",
+    srcAlias: sourceAlias,
+    srcAccountIds: selectedSourceAccounts.map((a) => a.id),
+    dstAlias: destAlias,
+    dstAccountId: destResult.id,
+  };
 }

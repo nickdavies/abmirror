@@ -1,0 +1,34 @@
+# Ghost copy preserved (delete not enabled), Starbucks split copy added.
+# Global sort: (A, checking) < (A, partner)
+#   TX-1: A:checking Starbucks original
+#   TX-2: A:partner Ghost stale copy (preserved)
+#   TX-3: A:partner Starbucks split copy (new)
+
+budgets:
+  A:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "#shared morning coffee"
+            category: Dining Out
+            cleared: null
+            imported_id: null
+      partner:
+        transactions:
+          - date: "2025-01-10"
+            amount: -5000
+            payee_name: Panera
+            notes: "Tuesday lunch"
+            category: Dining Out
+            cleared: null
+            imported_id: "ABMirror:A:GHOST-01"
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "#shared morning coffee"
+            category: Dining Out
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"

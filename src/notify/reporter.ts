@@ -9,7 +9,8 @@ export type WarningCode =
   | "splitter.multiTagMatch"
   | "splitter.scopeMatchNoActionTag"
   | "preflight.closedAccountInScope"
-  | "preflight.emptySourceScope";
+  | "preflight.emptySourceScope"
+  | "sync.highChangeCount";
 
 export interface Warning {
   code: WarningCode;
@@ -62,6 +63,11 @@ function formatWarning(code: WarningCode, detail: unknown): string {
       const type = d.stepType ?? "?";
       return `Step ${step} (${type}): source scope matched no accounts`;
     }
+    case "sync.highChangeCount": {
+      const d = detail as { stepIndex?: number; total?: number; added?: number; updated?: number; deleted?: number };
+      const step = (d.stepIndex ?? 0) + 1;
+      return `Step ${step}: high change count (${d.total ?? 0}: +${d.added ?? 0} ~${d.updated ?? 0} -${d.deleted ?? 0})`;
+    }
     default:
       return `[${code}] ${JSON.stringify(detail)}`;
   }
@@ -88,7 +94,8 @@ export interface RunReporter {
   warn(code: WarningCode, detail: unknown): void;
   recordStep(result: StepResult): void;
   getSummary(): RunSummary;
-  send(success: boolean): void;
+  /** Returns true if OK (or no notification attempted), false if notification send failed. */
+  send(success: boolean): Promise<boolean>;
 }
 
 export function createRunReporter(
@@ -117,7 +124,7 @@ export function createRunReporter(
       };
     },
 
-    send(success: boolean) {
+    async send(success: boolean): Promise<boolean> {
       const summary: RunSummary = {
         success,
         durationMs: Date.now() - startTime,
@@ -143,7 +150,7 @@ export function createRunReporter(
         token &&
         (!success || summary.warnings.length > 0 || onSuccess);
 
-      if (!shouldSend) return;
+      if (!shouldSend) return true;
 
       const { title: truncatedTitle, message: truncatedMsg } = truncateForProvider(
         title,
@@ -159,13 +166,24 @@ export function createRunReporter(
         ...(success ? {} : { priority: "1" }),
       });
 
-      fetch("https://api.pushover.net/1/messages.json", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-      }).catch((err) => {
+      try {
+        const response = await fetch("https://api.pushover.net/1/messages.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString(),
+        });
+        if (!response.ok) {
+          const responseBody = await response.text().catch(() => "(unreadable)");
+          console.error(
+            `Pushover send failed: HTTP ${response.status} ${response.statusText}\n${responseBody}`
+          );
+          return false;
+        }
+        return true;
+      } catch (err) {
         console.error("Pushover send failed:", err);
-      });
+        return false;
+      }
     },
   };
 }

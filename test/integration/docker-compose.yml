@@ -1,7 +1,0 @@
-services:
-  actual-server:
-    image: actualbudget/actual-server:latest
-    ports:
-      - "5007:5006"
-    tmpfs:
-      - /data

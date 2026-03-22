@@ -1,0 +1,10 @@
+# Example: mirror step only. Replace budget aliases and account IDs with your bootstrapped values.
+# Use: ab-mirror list-accounts --config localdev/config.yaml to get account IDs.
+pipeline:
+  - type: mirror
+    source:
+      budget: nick
+      accounts: ["<source-account-id>"]
+    destination:
+      budget: joint
+      account: "<dest-account-id>"

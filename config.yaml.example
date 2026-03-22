@@ -10,6 +10,8 @@ dataDir: "/tmp/ab-mirror-data"   # local dir for budget cache
 
 budgets:
   main: { syncId: "<your-budget-sync-id>", encrypted: false }
+  # key is the E2E encryption passphrase (set in Actual UI: Settings > Encryption).
+  # This is NOT the server login password.
   shared: { syncId: "<other-sync-id>", encrypted: true, key: "${AB_MIRROR_KEY_SHARED}" }
 
 lookbackDays: 60
@@ -36,4 +38,3 @@ pipeline:
   - type: mirror
     source: { budget: main, accounts: ["<account-id>"] }
     destination: { budget: shared, account: "<account-id>" }
-    copyMirrored: true

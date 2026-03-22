@@ -1,0 +1,10 @@
+pipeline:
+  - type: mirror
+    source:
+      budget: A
+      accounts: ["checking"]
+    destination:
+      budget: A
+      account: recv
+    invert: false
+    delete: true

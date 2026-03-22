@@ -1,0 +1,9 @@
+pipeline:
+  - type: split
+    budget: A
+    source:
+      accounts: ["checking"]
+    tags:
+      "#shared":
+        multiplier: 1
+        destination_account: partner

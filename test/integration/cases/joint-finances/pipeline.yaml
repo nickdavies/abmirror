@@ -1,0 +1,182 @@
+# Joint-finances: IDEAL pipeline order for minimal iterations.
+# Phase 1: all splits. Phase 2: mirrors into Joint. Phase 3: pay_a↔pay_b (invert). Phase 4: mirrors out.
+# Order: 1, 2, 10, 13, 14, 3, 4, 5, 7, pay_b→pay_a, pay_a→pay_b, 6, 8, 11, 12.
+
+# ─── Phase 1: All splits ─────────────────────────────────────────────────────
+
+# Step 1: A checking (#joint) → A:recv
+- type: split
+  budget: A
+  source:
+    accounts: ["checking"]
+    requiredTags: ["#joint"]
+  tags:
+    "#50/50":
+      multiplier: -0.5
+      destination_account: recv
+    "#0/100":
+      multiplier: -1
+      destination_account: recv
+
+# Step 2: B checking (#joint) → B:recv
+- type: split
+  budget: B
+  source:
+    accounts: ["checking"]
+    requiredTags: ["#joint"]
+  tags:
+    "#50/50":
+      multiplier: -0.5
+      destination_account: recv
+
+# Step 10: Joint checking → joint_expenses (50% of every tx; no tag required)
+- type: split
+  budget: Joint
+  source:
+    accounts: ["checking"]
+  tags: {}
+  default:
+    multiplier: 0.5
+    destination_account: joint_expenses
+
+# Step 13: charge the person whose expense it is (#personal_a → pay_a, #personal_b → pay_b)
+- type: split
+  budget: Joint
+  source:
+    accounts: ["checking"]
+  tags:
+    "#personal_a":
+      multiplier: 0.5
+      destination_account: pay_a
+    "#personal_b":
+      multiplier: 0.5
+      destination_account: pay_b
+
+# Step 14: credit the other person (offsetting entry)
+- type: split
+  budget: Joint
+  source:
+    accounts: ["checking"]
+  tags:
+    "#personal_a":
+      multiplier: -0.5
+      destination_account: pay_b
+    "#personal_b":
+      multiplier: -0.5
+      destination_account: pay_a
+
+# ─── Phase 2: Mirrors from A and B into Joint ────────────────────────────────
+
+# Step 3: A checking (#joint #50/50 only) → Joint:a_indv (exclude #0/100 purely personal)
+- type: mirror
+  source:
+    budget: A
+    accounts: ["checking"]
+    requiredTags: ["#joint", "#50/50"]
+  destination:
+    budget: Joint
+    account: a_indv
+  invert: false
+
+# Step 4: B checking (#joint #50/50 only) → Joint:b_indv
+- type: mirror
+  source:
+    budget: B
+    accounts: ["checking"]
+    requiredTags: ["#joint", "#50/50"]
+  destination:
+    budget: Joint
+    account: b_indv
+  invert: false
+
+# Step 5: A:recv → Joint:pay_a (categoryMapping: cross-budget Groceries→GroceriesJoint; Rum unmapped→null)
+- type: mirror
+  source:
+    budget: A
+    accounts: ["recv"]
+  destination:
+    budget: Joint
+    account: pay_a
+  invert: false
+  categoryMapping:
+    Groceries: GroceriesJoint
+
+# Step 7: B:recv → Joint:pay_b (same mapping for consistency)
+- type: mirror
+  source:
+    budget: B
+    accounts: ["recv"]
+  destination:
+    budget: Joint
+    account: pay_b
+  invert: false
+  categoryMapping:
+    Groceries: GroceriesJoint
+
+# ─── Phase 3: Mirrors within Joint (pay_a ↔ pay_b, both invert) ───────────────
+
+# Joint:pay_b → Joint:pay_a (B's entries become negatives in pay_a)
+- type: mirror
+  source:
+    budget: Joint
+    accounts: ["pay_b"]
+  destination:
+    budget: Joint
+    account: pay_a
+  invert: true
+
+# Joint:pay_a → Joint:pay_b (A's entries become negatives in pay_b)
+- type: mirror
+  source:
+    budget: Joint
+    accounts: ["pay_a"]
+  destination:
+    budget: Joint
+    account: pay_b
+  invert: true
+
+# ─── Phase 4: Mirrors from Joint back out ────────────────────────────────────
+
+# Step 6: Joint:pay_a → A:recv (A gets full settlement view from pay_a)
+- type: mirror
+  source:
+    budget: Joint
+    accounts: ["pay_a"]
+  destination:
+    budget: A
+    account: recv
+  invert: false
+  categoryMapping:
+    GroceriesJoint: Groceries
+
+# Step 8: Joint:pay_b → B:recv (B gets full settlement view from pay_b)
+- type: mirror
+  source:
+    budget: Joint
+    accounts: ["pay_b"]
+  destination:
+    budget: B
+    account: recv
+  invert: false
+  categoryMapping:
+    GroceriesJoint: Groceries
+
+# Step 11: Joint:joint_expenses → A:joint
+- type: mirror
+  source:
+    budget: Joint
+    accounts: ["joint_expenses"]
+  destination:
+    budget: A
+    account: joint
+  invert: false
+
+# Step 12: Joint:joint_expenses → B:joint
+- type: mirror
+  source:
+    budget: Joint
+    accounts: ["joint_expenses"]
+  destination:
+    budget: B
+    account: joint
+  invert: false

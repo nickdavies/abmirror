@@ -1,0 +1,284 @@
+# DESIRED settled state (content-based matching, no id fields).
+
+budgets:
+  A:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-15"
+            amount: -16000
+            payee_name: Total Bev
+            notes: "#joint #50/50 Rum"
+            category: Rum
+            cleared: null
+            imported_id: null
+          - date: "2025-01-20"
+            amount: -8000
+            payee_name: null
+            notes: "part joint part 100% partner"
+            category: null
+            cleared: null
+            imported_id: null
+          - date: "2025-01-20"
+            amount: -4000
+            payee_name: null
+            notes: personal
+            category: null
+            cleared: null
+            imported_id: null
+      joint:
+        transactions:
+          - date: "2025-01-25"
+            amount: -15000
+            payee_name: Total Escape Games
+            notes: null
+            category: null
+            cleared: null
+          - date: "2025-01-26"
+            amount: -2000
+            payee_name: United Airlines
+            notes: "#personal_b"
+            category: null
+            cleared: null
+      recv:
+        transactions:
+          - date: "2025-01-15"
+            amount: 8000
+            payee_name: Total Bev
+            notes: "#joint #50/50 Rum"
+            category: Rum
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"
+          - date: "2025-01-18"
+            amount: -5000
+            payee_name: King Soopers
+            notes: "#joint #50/50"
+            category: Groceries
+            cleared: null
+            imported_id: "ABMirror:B:TX-4"
+          - date: "2025-01-20"
+            amount: 2000
+            payee_name: costco
+            notes: "#joint #0/100 spent $20 on redbull for partner"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-2-SUB-2"
+          - date: "2025-01-20"
+            amount: 3000
+            payee_name: Costco
+            notes: "#joint #50/50 shared part of groceries"
+            category: Groceries
+            cleared: null
+            imported_id: "ABMirror:A:TX-2-SUB-1"
+          - date: "2025-01-26"
+            amount: 2000
+            payee_name: United Airlines
+            notes: "#personal_b"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:Joint:TX-7"
+      savings:
+        transactions: []
+  B:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-18"
+            amount: -10000
+            payee_name: King Soopers
+            notes: "#joint #50/50"
+            category: Groceries
+            cleared: null
+            imported_id: null
+          - date: "2025-01-22"
+            amount: -3500
+            payee_name: null
+            notes: null
+            category: null
+            cleared: null
+            imported_id: null
+      joint:
+        transactions:
+          - date: "2025-01-25"
+            amount: -15000
+            payee_name: Total Escape Games
+            notes: null
+            category: null
+            cleared: null
+          - date: "2025-01-26"
+            amount: -2000
+            payee_name: United Airlines
+            notes: "#personal_b"
+            category: null
+            cleared: null
+      recv:
+        transactions:
+          - date: "2025-01-15"
+            amount: -8000
+            payee_name: Total Bev
+            notes: "#joint #50/50 Rum"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"
+          - date: "2025-01-18"
+            amount: 5000
+            payee_name: King Soopers
+            notes: "#joint #50/50"
+            category: Groceries
+            cleared: null
+            imported_id: "ABMirror:B:TX-4"
+          - date: "2025-01-20"
+            amount: -2000
+            payee_name: costco
+            notes: "#joint #0/100 spent $20 on redbull for partner"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-2-SUB-2"
+          - date: "2025-01-20"
+            amount: -3000
+            payee_name: Costco
+            notes: "#joint #50/50 shared part of groceries"
+            category: Groceries
+            cleared: null
+            imported_id: "ABMirror:A:TX-2-SUB-1"
+          - date: "2025-01-26"
+            amount: -2000
+            payee_name: United Airlines
+            notes: "#personal_b"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:Joint:TX-7"
+      savings:
+        transactions: []
+  Joint:
+    accounts:
+      a_indv:
+        transactions:
+          - date: "2025-01-15"
+            amount: -16000
+            payee_name: Total Bev
+            notes: "#joint #50/50 Rum"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"
+          - date: "2025-01-20"
+            amount: -6000
+            payee_name: Costco
+            notes: "#joint #50/50 shared part of groceries"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-2-SUB-1"
+      b_indv:
+        transactions:
+          - date: "2025-01-18"
+            amount: -10000
+            payee_name: King Soopers
+            notes: "#joint #50/50"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:B:TX-4"
+      checking:
+        transactions:
+          - date: "2025-01-25"
+            amount: -30000
+            payee_name: Total Escape Games
+            notes: null
+            category: Games
+            cleared: null
+            imported_id: null
+          - date: "2025-01-26"
+            amount: -4000
+            payee_name: United Airlines
+            notes: "#personal_b"
+            category: Misc
+            cleared: null
+            imported_id: null
+      joint_expenses:
+        offbudget: true
+        transactions:
+          - date: "2025-01-25"
+            amount: -15000
+            payee_name: Total Escape Games
+            notes: null
+            category: Games
+            cleared: null
+          - date: "2025-01-26"
+            amount: -2000
+            payee_name: United Airlines
+            notes: "#personal_b"
+            category: Misc
+            cleared: null
+      pay_a:
+        transactions:
+          - date: "2025-01-15"
+            amount: 8000
+            payee_name: Total Bev
+            notes: "#joint #50/50 Rum"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"
+          - date: "2025-01-18"
+            amount: -5000
+            payee_name: King Soopers
+            notes: "#joint #50/50"
+            category: GroceriesJoint
+            cleared: null
+            imported_id: "ABMirror:B:TX-4"
+          - date: "2025-01-20"
+            amount: 2000
+            payee_name: costco
+            notes: "#joint #0/100 spent $20 on redbull for partner"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-2-SUB-2"
+          - date: "2025-01-20"
+            amount: 3000
+            payee_name: Costco
+            notes: "#joint #50/50 shared part of groceries"
+            category: GroceriesJoint
+            cleared: null
+            imported_id: "ABMirror:A:TX-2-SUB-1"
+          - date: "2025-01-26"
+            amount: 2000
+            payee_name: United Airlines
+            notes: "#personal_b"
+            category: Misc
+            cleared: null
+            imported_id: "ABMirror:Joint:TX-7"
+      pay_b:
+        transactions:
+          - date: "2025-01-15"
+            amount: -8000
+            payee_name: Total Bev
+            notes: "#joint #50/50 Rum"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"
+          - date: "2025-01-18"
+            amount: 5000
+            payee_name: King Soopers
+            notes: "#joint #50/50"
+            category: GroceriesJoint
+            cleared: null
+            imported_id: "ABMirror:B:TX-4"
+          - date: "2025-01-20"
+            amount: -2000
+            payee_name: costco
+            notes: "#joint #0/100 spent $20 on redbull for partner"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-2-SUB-2"
+          - date: "2025-01-20"
+            amount: -3000
+            payee_name: Costco
+            notes: "#joint #50/50 shared part of groceries"
+            category: GroceriesJoint
+            cleared: null
+            imported_id: "ABMirror:A:TX-2-SUB-1"
+          - date: "2025-01-26"
+            amount: -2000
+            payee_name: United Airlines
+            notes: "#personal_b"
+            category: Misc
+            cleared: null
+            imported_id: "ABMirror:Joint:TX-7"

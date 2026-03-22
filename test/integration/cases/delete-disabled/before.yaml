@@ -1,0 +1,30 @@
+# delete-disabled: mirror with delete: false.
+# Same setup as delete-stale-mirror but stale copy must SURVIVE.
+
+budgets:
+  B:
+    accounts:
+      recv:
+        transactions:
+          - id: TX-1
+            date: "2025-01-10"
+            amount: -5000
+            payee_name: Panera
+            notes: "Tuesday lunch"
+            category: Dining Out
+            cleared: null
+            imported_id: "ABMirror:A:GHOST-01"
+            subs: []
+  A:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-2
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
+            cleared: null
+            imported_id: null
+            subs: []

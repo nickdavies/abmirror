@@ -1,0 +1,28 @@
+# mirror-invert: same-budget mirror with invert: true.
+# Copies checking → offset with negated amounts (e.g. tracking reimbursement owed).
+
+budgets:
+  A:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-1
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
+            cleared: null
+            imported_id: null
+            subs: []
+          - id: TX-2
+            date: "2025-01-20"
+            amount: -5000
+            payee_name: Chipotle
+            notes: "Friday lunch"
+            category: Dining Out
+            cleared: null
+            imported_id: null
+            subs: []
+      offset:
+        transactions: []

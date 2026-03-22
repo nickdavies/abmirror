@@ -1,0 +1,45 @@
+# After pipeline:
+#   A:recv gets Chipotle copy from B:checking (NOT Starbucks from B:recv — loop blocked)
+#   B:recv gets Starbucks copy from A:checking (NOT Chipotle from A:recv — loop blocked)
+
+budgets:
+  A:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
+            cleared: null
+            imported_id: null
+      recv:
+        transactions:
+          - date: "2025-01-20"
+            amount: -5000
+            payee_name: Chipotle
+            notes: "Friday lunch"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:B:TX-2"
+  B:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-20"
+            amount: -5000
+            payee_name: Chipotle
+            notes: "Friday lunch"
+            category: Dining Out
+            cleared: null
+            imported_id: null
+      recv:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"

@@ -7,6 +7,7 @@ const mockConfig = {
   budgets: {},
   pipeline: [],
   lookbackDays: 60,
+  maxChangesPerStep: 100,
   notify: undefined,
 };
 

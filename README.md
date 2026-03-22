@@ -39,7 +39,7 @@ budgets:
   main: { syncId: "<your-budget-sync-id>", encrypted: false }
   shared: { syncId: "<other-sync-id>", encrypted: true, key: "${AB_MIRROR_KEY_SHARED}" }
 
-lookbackDays: 60
+lookbackDays: 90
 
 # Optional: push notifications via Pushover (for cron runs)
 notify:
@@ -62,7 +62,6 @@ pipeline:
   - type: mirror
     source: { budget: main, accounts: ["<account-id>"] }
     destination: { budget: shared, account: "<account-id>" }
-    copyMirrored: true
 ```
 
 ### 4. Set environment variables
@@ -94,10 +93,11 @@ npx ab-mirror validate --config config.yaml
 npx ab-mirror list-accounts --config config.yaml
 
 # Run the pipeline (dry-run first to simulate)
-npx ab-mirror run --config config.yaml --dry-run
+npx ab-mirror run --config config.yaml --dry-run --max-changes 0
 
-# Run for real
-npx ab-mirror run --config config.yaml
+# Run for real (--max-changes 0 disables the circuit breaker for initial sync;
+# omit on subsequent runs to use the default limit of 100)
+npx ab-mirror run --config config.yaml --max-changes 0
 
 # Run only a specific pipeline step (1-based index)
 npx ab-mirror run --config config.yaml --step 1
@@ -114,11 +114,15 @@ docker run -d --rm -p 5006:5006 --name actual-server actualbudget/actual-server:
 Or with docker compose (port 5007 to avoid conflicts with other services):
 
 ```bash
-docker compose -f test/integration/docker-compose.yml up -d
+docker compose -f localdev/docker-compose.yml up -d
 # Server will be at http://localhost:5007
 ```
 
 Then create a budget in the Actual web UI, enable sync, and use its sync ID in your config.
+
+## Local development
+
+For testing with real budget data, see [`localdev/README.md`](localdev/README.md) — it bootstraps a Docker Actual server from your exported budget zips and provides tools for running pipelines.
 
 ## Development
 
@@ -126,11 +130,11 @@ Then create a budget in the Actual web UI, enable sync, and use its sync ID in y
 # Type check
 npm run typecheck
 
-# Unit tests
+# Unit + integration tests (in-memory mock, no Docker required)
 npm test
 
-# Integration tests (starts Actual server in Docker, runs full pipeline)
-npm run test:integration
+# End-to-end tests (starts Actual server in Docker, runs full pipeline)
+npm run test:e2e
 ```
 
 ## Config reference
@@ -140,13 +144,70 @@ npm run test:integration
 | `server.url` | Actual sync server URL |
 | `server.password` | Optional. Server password. Use `${AB_MIRROR_SERVER_PASSWORD}` or leave unset to use env. |
 | `dataDir` | Local directory for budget file cache |
-| `budgets` | Map of alias → `{ syncId, encrypted?, key? }`. Use `key: "${AB_MIRROR_KEY_<ALIAS>}"` for encrypted budgets, or set env var. |
+| `budgets` | Map of alias → `{ syncId, encrypted?, key? }`. Use `key: "${AB_MIRROR_KEY_<ALIAS>}"` for encrypted budgets, or set env var. The `key` is the E2E encryption passphrase (set in Actual UI under Settings > Encryption), **not** the server login password. |
 | `pipeline` | Array of split/mirror steps |
-| `lookbackDays` | How far back to scan transactions (default: 60) |
+| `lookbackDays` | How far back to scan transactions (default: 90). **Warning:** transactions older than this window are invisible to ABMirror — they won't be created, updated, or deleted. If you shorten this value, mirror copies of older transactions become unmanaged (not deleted, just ignored). |
+| `maxChangesPerStep` | Max changes (add + update + delete) any single step can make before aborting (default: 100, 0 = unlimited). On your first run, set to `0` or use `--max-changes 0` since every in-scope transaction will be new. |
 | `notify` | Optional push notifications (Pushover). `onSuccess: false` (default) = only notify on failure or warnings. Use `${AB_MIRROR_PUSHOVER_USER}` and `${AB_MIRROR_PUSHOVER_TOKEN}` for credentials. |
 
 **Notify**: When configured, sends run summaries and non-fatal warnings (e.g. multi-tag skipped, closed accounts in scope) to Pushover. The full report is always logged to stdout; Pushover messages may be truncated with a pointer to check logs.
 
-**Split step**: Splits tagged transactions from source accounts into destination accounts based on tag multipliers. Tags are always exclusive: when a transaction matches multiple action tags, it is skipped (reported via notifier). For multiple destinations, add multiple split steps.
+**Split step**: Splits tagged transactions from source accounts into destination accounts based on tag multipliers. Tags are always exclusive: when a transaction matches multiple action tags, it is skipped (reported via notifier). For multiple destinations, add multiple split steps. Options: `delete` (remove stale copies when source tx is deleted, default: false), `updateFields` (sync payee/notes/category/cleared on existing copies, default: false), `default` (route transactions matching no tag to a destination with a multiplier).
 
-**Mirror step**: Copies transactions from source budget/accounts to a destination budget/account. Options: `invert`, `delete`, `copyMirrored`, `categoryMapping`.
+**Mirror step**: Copies transactions from source budget/accounts to a destination budget/account. Options: `invert` (negate amount), `delete` (remove stale copies, default: false), `updateFields` (sync payee/notes/category/cleared, default: false), `categoryMapping` (remap category IDs across budgets).
+
+## Known limitation: Config changes can strand transactions
+
+When you **change the config** so a destination is no longer in the step (e.g. change `#50/50` from `JointAccount` to `SplitAccount` and remove `JointAccount` from the config), we stop reading from the old destination. Transactions there become **stranded**—they remain but are no longer managed.
+
+This applies only to **config changes**, not to **transaction content changes**. If a user changes a transaction's tag from `#50/50` to `#0/100`, we read from both destinations and correctly delete from the old one and add to the new one.
+
+### Migration pattern for config changes
+
+When changing destinations in config, use a stepwise migration:
+
+1. Add a temporary tag mapping to keep the old account in scope: `"#legacy" -> old_account`
+2. Run the pipeline. We read from both old and new destinations; stranded transactions in the old account are deleted (they are not in the desired set).
+3. Remove the `#legacy` entry from config.
+
+You control `lookbackDays` for how far back to clean—use a shorter value for recent-only cleanup, or the full value for a complete migration.
+
+## Destination accounts should be dedicated to ABMirror
+
+**Strongly recommended: use dedicated, empty accounts as ABMirror destinations.** Do not point ABMirror at accounts that contain manually-entered or bank-synced transactions. When a destination account contains only ABMirror-managed transactions, recovery from any misconfiguration is simple: delete all transactions in the account and re-run ABMirror with a long `lookbackDays` to recreate them.
+
+If you mix ABMirror transactions with real transactions in the same account, you lose this safety net — there is no way to distinguish which transactions ABMirror created vs. which you entered manually, and a bulk delete becomes destructive.
+
+## Known limitation: Bank sync can clobber ABMirror's `imported_id`
+
+ABMirror tracks its transactions via `imported_id` (stored as `financial_id` in Actual's SQLite DB). If a destination account has bank sync enabled (GoCardless, SimpleFin, or Pluggy.ai), the bank sync process can overwrite or null out the `imported_id` that ABMirror set, breaking ABMirror's ability to match, update, and delete its own transactions.
+
+**How it happens:** Actual's bank sync reconciliation matches incoming bank transactions against existing ones by date/amount/payee. When it updates a matched transaction, it replaces `imported_id` with the bank's value (or `null`), destroying ABMirror's `ABMirror:<budgetId>:<txId>` identifier.
+
+### Preflight protection
+
+ABMirror checks every destination account for bank sync at startup. If any destination has bank sync enabled, **the pipeline refuses to run** with an error identifying the account. This prevents ABMirror from writing to an account where its data would be corrupted.
+
+However, if you enable bank sync on an existing destination account *between* ABMirror runs, bank sync may corrupt transactions before ABMirror's next run catches it. ABMirror cannot prevent this — it only detects it.
+
+### Recovery
+
+If bank sync has already run against a destination account:
+
+1. Unlink bank sync from the account in Actual's UI.
+2. Delete all transactions in the destination account (this is safe if you followed the recommendation above to keep destination accounts dedicated to ABMirror).
+3. Re-run ABMirror with a `lookbackDays` value large enough to cover the full history. ABMirror will recreate all transactions with correct `imported_id` values.
+
+### Technical details
+
+Actual stores `account_sync_source` on each account (`'simpleFin'`, `'goCardless'`, or `'pluggyai'` when linked, `null` otherwise). This is not exposed by `getAccounts()` but is queryable via the AQL API:
+
+```typescript
+import { q, aqlQuery } from "@actual-app/api";
+
+const { data } = await aqlQuery(
+  q("accounts")
+    .select(["id", "name", "account_sync_source"])
+    .filter({ account_sync_source: { $ne: null } })
+);
+```

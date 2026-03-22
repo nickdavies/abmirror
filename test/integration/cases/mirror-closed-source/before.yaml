@@ -1,0 +1,46 @@
+# Closed-account handling: A:checking is closed (has a tx from a previous run),
+# A:savings is open (has a tx). B:recv has an existing copy of the closed-
+# account tx from a prior run.
+#
+# Expected: closed account excluded from source scan (no new copy created),
+# but its tx remains in rootTxIndex so the existing copy is NOT deleted.
+
+budgets:
+  B:
+    accounts:
+      recv:
+        transactions:
+          - id: TX-1
+            date: "2025-01-10"
+            amount: -5000
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
+            cleared: null
+            imported_id: "ABMirror:A:TX-2"
+            subs: []
+  A:
+    accounts:
+      checking:
+        closed: true
+        transactions:
+          - id: TX-2
+            date: "2025-01-10"
+            amount: -5000
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
+            cleared: null
+            imported_id: null
+            subs: []
+      savings:
+        transactions:
+          - id: TX-3
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Trader Joe's
+            notes: "weekly groceries"
+            category: Groceries
+            cleared: null
+            imported_id: null
+            subs: []

@@ -1,0 +1,31 @@
+# mirror-update-fields: source tx has changed payee and notes since last mirror.
+# B:recv has an existing copy with stale payee/notes.
+# With updateFields: true, the copy should be updated.
+
+budgets:
+  B:
+    accounts:
+      recv:
+        transactions:
+          - id: TX-1
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: "SBUX #1234"
+            notes: "coffee"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-2"
+            subs: []
+  A:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-2
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "morning coffee run"
+            category: null
+            cleared: true
+            imported_id: null
+            subs: []

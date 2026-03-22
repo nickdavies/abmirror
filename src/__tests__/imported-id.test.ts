@@ -3,6 +3,7 @@ import {
   formatImportedId,
   parseImportedId,
   isABMirrorId,
+  getRootTxId,
 } from "../util/imported-id";
 
 describe("formatImportedId", () => {
@@ -23,6 +24,20 @@ describe("isABMirrorId", () => {
     expect(isABMirrorId(null)).toBe(false);
     expect(isABMirrorId(undefined)).toBe(false);
     expect(isABMirrorId("")).toBe(false);
+  });
+});
+
+describe("getRootTxId", () => {
+  it("returns plain tx id unchanged", () => {
+    expect(getRootTxId("some-uuid-1234")).toBe("some-uuid-1234");
+  });
+
+  it("strips ::default::<destAcctId> suffix", () => {
+    expect(getRootTxId("some-uuid-1234::default::acct-abc")).toBe("some-uuid-1234");
+  });
+
+  it("strips suffix even when dest account ID contains colons", () => {
+    expect(getRootTxId("tx-1::default::acct:with:colons")).toBe("tx-1");
   });
 });
 

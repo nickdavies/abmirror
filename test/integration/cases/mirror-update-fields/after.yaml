@@ -1,0 +1,28 @@
+# Copy in B:recv should have updated payee, notes, and cleared from source.
+# Global sort: (A, checking) < (B, recv)
+#   TX-1: A:checking source
+#   TX-2: B:recv copy (updated)
+
+budgets:
+  A:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "morning coffee run"
+            category: null
+            cleared: true
+            imported_id: null
+  B:
+    accounts:
+      recv:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "morning coffee run"
+            category: null
+            cleared: true
+            imported_id: "ABMirror:A:TX-2"

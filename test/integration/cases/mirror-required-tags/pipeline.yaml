@@ -1,0 +1,11 @@
+pipeline:
+  - type: mirror
+    source:
+      budget: A
+      accounts: all
+      requiredTags: ["#joint"]
+    destination:
+      budget: B
+      account: recv
+    invert: false
+    delete: false

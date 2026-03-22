@@ -9,3 +9,7 @@ temp/
 .DS_Store
 Thumbs.db
 test/integration/.tmp-config.yaml
+localdev/data/
+localdev/config.yaml
+localdev/.ab-mirror-cache/
+test/e2e/.tmp-*

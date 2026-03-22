@@ -24,9 +24,18 @@ export const SplitStepSchema = z.object({
   source: z.object({
     accounts: AccountsSpecSchema.default("all"),
     requiredTags: z.array(z.string().min(1)).optional(),
-    splitMirrored: z.boolean().default(false),
   }),
   tags: z.record(z.string().min(1), TagActionSchema),
+  /** When set, transactions that match no tag are routed here (e.g. "all checking → 50% joint_expenses"). */
+  default: z
+    .object({
+      multiplier: z.number(),
+      destination_account: z.string().min(1),
+    })
+    .optional(),
+  delete: z.boolean().default(false),
+  /** When true, sync payee_name/notes/category/cleared on existing copies (not just date/amount). */
+  updateFields: z.boolean().default(false),
 });
 
 export const MirrorStepSchema = z.object({
@@ -42,7 +51,8 @@ export const MirrorStepSchema = z.object({
   }),
   invert: z.boolean().default(false),
   delete: z.boolean().default(false),
-  copyMirrored: z.boolean().default(false),
+  /** When true, sync payee_name/notes/category/cleared on existing copies (not just date/amount). */
+  updateFields: z.boolean().default(false),
   categoryMapping: z.record(z.string(), z.string()).optional(),
 });
 
@@ -85,7 +95,9 @@ export const ConfigSchema = z.object({
     })
   ),
   pipeline: z.array(PipelineStepSchema).default([]),
-  lookbackDays: z.number().int().positive().default(60),
+  lookbackDays: z.number().int().positive().default(90),
+  /** Max changes any single step can make before aborting. 0 = unlimited. */
+  maxChangesPerStep: z.number().int().min(0).default(100),
   notify: NotifySchema,
 });
 

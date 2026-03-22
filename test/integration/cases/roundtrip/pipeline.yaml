@@ -1,0 +1,2 @@
+# Empty pipeline — used to verify that import → export is a no-op roundtrip.
+pipeline: []

@@ -4,12 +4,24 @@
  * BudgetManager.open) and at the end of the pipeline.
  */
 import type { Config } from "../config/schema";
+
+export class PreflightError extends Error {
+  public readonly errors: string[];
+  constructor(errors: string[]) {
+    super("Preflight validation failed:\n" + errors.map((e) => `  - ${e}`).join("\n"));
+    this.name = "PreflightError";
+    this.errors = errors;
+  }
+}
 import type { Secrets } from "../env";
 import { BudgetManager } from "../client/budget-manager";
 import { createRunReporter } from "../notify/reporter";
-import { runSyncer } from "../syncer/index";
-import { runSplitter } from "../splitter/index";
+import { runSyncEngine } from "../diff/sync-engine";
+import { createMirrorEngine, buildMirrorOpts } from "../engines/mirror-engine";
+import { createSplitEngine, buildSplitOpts } from "../engines/split-engine";
 import { runPreflight } from "./preflight";
+import { buildGlobalTxIndex } from "../diff/global-tx-index";
+import { formatLocalDate, lookbackStart } from "../util/dates";
 
 export interface RunOptions {
   config: Config;
@@ -17,14 +29,20 @@ export interface RunOptions {
   dryRun?: boolean;
   /** If provided, only run the pipeline step at this 0-based index. */
   stepIndex?: number;
+  /** Override config maxChangesPerStep. undefined = use config value. */
+  maxChangesPerStep?: number;
   /** Show verbose infrastructure messages from Actual API. */
   verbose?: boolean;
+  /** Log each sync/download with a counter (for debugging). */
+  debugSync?: boolean;
 }
 
 export async function runPipeline(opts: RunOptions): Promise<void> {
-  const { config, secrets, dryRun = false, stepIndex, verbose = false } = opts;
+  const { config, secrets, dryRun = false, stepIndex, verbose = false, debugSync = false } = opts;
+  // CLI flag overrides config; 0 means unlimited (passed as 0, which is falsy → no-op in check)
+  const maxChangesPerStep = opts.maxChangesPerStep ?? config.maxChangesPerStep;
 
-  const manager = new BudgetManager(config, secrets);
+  const manager = new BudgetManager(config, secrets, { debugSync });
   await manager.init({ verbose });
 
   const startTime = Date.now();
@@ -36,11 +54,7 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
     console.log("Running preflight validation...");
     const result = await runPreflight(config, manager, reporter);
     if (!result.ok) {
-      console.error("Preflight validation failed:");
-      for (const err of result.errors) {
-        console.error(`  - ${err}`);
-      }
-      process.exit(1);
+      throw new PreflightError(result.errors);
     }
     console.log("Preflight OK.");
 
@@ -49,39 +63,71 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
         ? config.pipeline.slice(stepIndex, stepIndex + 1)
         : config.pipeline;
 
+    // Compute date window once for the entire pipeline run
+    const startDate = lookbackStart(config.lookbackDays);
+    const endDate = formatLocalDate(new Date());
+
+    // Pre-pass: build both indexes for loop prevention and root-existence delete semantics.
+    const { globalTxIndex, rootTxIndex } = await buildGlobalTxIndex(
+      Object.keys(config.budgets),
+      startDate,
+      endDate,
+      manager
+    );
+
+    // Build destOwnerMap: for each dest account, which source budget UUIDs have
+    // a mirror step writing to it. Used to avoid non-owner steps overwriting
+    // fresh data placed by owner steps earlier in the pipeline.
+    const destOwnerMap = new Map<string, Set<string>>();
+    for (const rs of result.resolvedSteps) {
+      if (rs.type === "mirror") {
+        const srcBudgetId = manager.getInfo(rs.srcAlias).budgetId;
+        if (!destOwnerMap.has(rs.dstAccountId)) destOwnerMap.set(rs.dstAccountId, new Set());
+        destOwnerMap.get(rs.dstAccountId)!.add(srcBudgetId);
+      }
+    }
+
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i]!;
       const displayIndex = stepIndex ?? i;
       console.log(`\nStep ${displayIndex + 1}: ${step.type}`);
 
       if (step.type === "split") {
-        const budgetInfo = manager.getInfo(step.budget);
-        await runSplitter(
+        const engine = createSplitEngine(step);
+        const opts = await buildSplitOpts(
+          step,
           {
-            step,
-            budgetId: budgetInfo.budgetId,
-            lookbackDays: config.lookbackDays,
+            startDate,
+            endDate,
             dryRun,
             reporter,
             stepIndex: displayIndex,
+            rootTxIndex,
+            maxChangesPerStep,
           },
           manager
         );
+        await runSyncEngine(engine, opts, manager);
         continue;
       }
 
       if (step.type === "mirror") {
-        const sourceBudgetInfo = manager.getInfo(step.source.budget);
-        await runSyncer(
+        const engine = createMirrorEngine(step);
+        const opts = await buildMirrorOpts(
+          step,
           {
-            step,
-            sourceBudgetId: sourceBudgetInfo.budgetId,
-            lookbackDays: config.lookbackDays,
+            startDate,
+            endDate,
             dryRun,
             reporter,
+            globalTxIndex,
+            rootTxIndex,
+            maxChangesPerStep,
+            destOwnerMap,
           },
           manager
         );
+        await runSyncEngine(engine, opts, manager);
         continue;
       }
     }
@@ -89,22 +135,34 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
     // Implicit final sync after all steps
     console.log("\nFinal sync...");
     await manager.syncAll();
+
+    const counts = manager.getDebugCounts();
+    if (debugSync) {
+      console.error(`[debug] pipeline complete: ${counts.sync} syncs, ${counts.download} downloads`);
+    }
   } catch (err) {
     success = false;
     throw err;
   } finally {
-    reporter.send(success);
+    const notifyOk = await reporter.send(success);
     await manager.shutdown();
+    // Only throw for notification failure when the pipeline itself succeeded.
+    // If the pipeline threw, that error is already propagating.
+    if (success && !notifyOk) {
+      throw new Error(
+        "Pipeline completed but Pushover notification failed — check logs above for details"
+      );
+    }
   }
 }
 
 /** Validate-only: same as runPipeline but stops after preflight. */
 export async function validateConfig(
   config: Config,
-  opts: { secrets: Secrets; verbose?: boolean }
+  opts: { secrets: Secrets; verbose?: boolean; debugSync?: boolean }
 ): Promise<void> {
-  const { secrets, verbose = false } = opts;
-  const manager = new BudgetManager(config, secrets);
+  const { secrets, verbose = false, debugSync = false } = opts;
+  const manager = new BudgetManager(config, secrets, { debugSync });
   await manager.init({ verbose });
 
   const reporter = createRunReporter(config);
@@ -112,14 +170,17 @@ export async function validateConfig(
   try {
     const result = await runPreflight(config, manager, reporter);
     if (!result.ok) {
-      console.error("Validation failed:");
-      for (const err of result.errors) {
-        console.error(`  - ${err}`);
+      if (debugSync) {
+        const counts = manager.getDebugCounts();
+        console.error(`[debug] validate preflight: ${counts.sync} syncs, ${counts.download} downloads`);
       }
-      process.exit(1);
+      throw new PreflightError(result.errors);
     }
     console.log("Validation passed.");
-    reporter.send(true);
+    const notifyOk = await reporter.send(true);
+    if (!notifyOk) {
+      console.error("Warning: Pushover notification failed — check logs above");
+    }
   } finally {
     await manager.shutdown();
   }

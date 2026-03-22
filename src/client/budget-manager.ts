@@ -20,12 +20,16 @@ export interface BudgetInfo {
 export class BudgetManager {
   private readonly config: Config;
   private readonly secrets: Secrets;
+  private readonly debugSync: boolean;
   private readonly infos = new Map<string, BudgetInfo>();
   private openAlias: string | null = null;
+  private syncCount = 0;
+  private downloadCount = 0;
 
-  constructor(config: Config, secrets: Secrets) {
+  constructor(config: Config, secrets: Secrets, opts?: { debugSync?: boolean }) {
     this.config = config;
     this.secrets = secrets;
+    this.debugSync = opts?.debugSync ?? false;
   }
 
   async init(opts?: { verbose?: boolean }): Promise<void> {
@@ -40,13 +44,27 @@ export class BudgetManager {
   /**
    * Opens a budget, syncing and switching away from the current one if needed.
    * Safe to call with the already-open alias (no-op).
+   * Uses loadBudget when the budget is already cached to avoid redundant downloads.
    */
   async open(alias: string): Promise<BudgetInfo> {
     if (this.openAlias === alias) {
       return this.getInfo(alias);
     }
     if (this.openAlias !== null) {
+      this.syncCount++;
+      if (this.debugSync) {
+        console.error(`[sync #${this.syncCount}] syncing ${this.openAlias} before switch to ${alias}`);
+      }
       await actual.sync();
+    }
+    const cached = this.infos.get(alias);
+    if (cached) {
+      if (this.debugSync) {
+        console.error(`[load] ${alias} (cached, no download)`);
+      }
+      await actual.loadBudget(cached.budgetId);
+      this.openAlias = alias;
+      return cached;
     }
     return this.download(alias);
   }
@@ -65,6 +83,10 @@ export class BudgetManager {
       ? this.secrets.budgetKeys[alias]
       : undefined;
 
+    this.downloadCount++;
+    if (this.debugSync) {
+      console.error(`[download #${this.downloadCount}] ${alias} (syncId=${budgetConfig.syncId})`);
+    }
     await actual.downloadBudget(budgetConfig.syncId, { password: encPassword });
 
     const allBudgets = await actual.getBudgets();
@@ -98,6 +120,13 @@ export class BudgetManager {
     return info;
   }
 
+  /** All budget IDs from config (only populated after preflight/download). */
+  getAllBudgetIds(): string[] {
+    return Object.keys(this.config.budgets)
+      .map((a) => this.infos.get(a)?.budgetId)
+      .filter((id): id is string => Boolean(id));
+  }
+
   getOpenAlias(): string | null {
     return this.openAlias;
   }
@@ -109,8 +138,17 @@ export class BudgetManager {
    */
   async syncAll(): Promise<void> {
     if (this.openAlias) {
+      this.syncCount++;
+      if (this.debugSync) {
+        console.error(`[sync #${this.syncCount}] syncAll for ${this.openAlias}`);
+      }
       await actual.sync();
     }
+  }
+
+  /** Returns sync/download counts (for debugging). Reset at start of pipeline. */
+  getDebugCounts(): { sync: number; download: number } {
+    return { sync: this.syncCount, download: this.downloadCount };
   }
 
   /** Syncs all budgets then shuts down the API. */

@@ -1,0 +1,32 @@
+# delete-stale-same-budget: same-budget mirror with delete: true.
+# Tests the NEW root-existence behaviour — previously same-budget mirrors
+# never deleted anything; now they delete when the canonical root is gone.
+#
+# A:recv has a stale copy pointing to a ghost tx that doesn't exist in A:checking.
+# Expected: stale copy deleted, real mirror copy of Starbucks added.
+
+budgets:
+  A:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-2
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
+            cleared: null
+            imported_id: null
+            subs: []
+      recv:
+        transactions:
+          - id: TX-1
+            date: "2025-01-10"
+            amount: -5000
+            payee_name: Panera
+            notes: "Tuesday lunch"
+            category: Dining Out
+            cleared: null
+            imported_id: "ABMirror:A:GHOST-01"
+            subs: []

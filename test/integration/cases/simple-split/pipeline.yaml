@@ -1,0 +1,13 @@
+pipeline:
+  - type: split
+    budget: A
+    source:
+      accounts: "checking"
+      requiredTags: ["#joint"]
+    tags:
+      "#50/50":
+        multiplier: -0.5
+        destination_account: "recv"
+      "#0/100":
+        multiplier: -1
+        destination_account: "recv"

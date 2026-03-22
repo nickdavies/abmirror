@@ -20,6 +20,7 @@ describe("loadSecrets", () => {
     },
     pipeline: [],
     lookbackDays: 60,
+    maxChangesPerStep: 100,
   };
 
   const AB_MIRROR_SERVER_PASSWORD = "AB_MIRROR_SERVER_PASSWORD";

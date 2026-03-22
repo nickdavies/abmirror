@@ -28,3 +28,12 @@ export function parseImportedId(raw: string): ParsedImportedId | null {
 export function isABMirrorId(raw: string | null | undefined): raw is string {
   return typeof raw === "string" && raw.startsWith(`${PREFIX}:`);
 }
+
+/**
+ * Returns the root tx ID from a possibly-compound split default ID.
+ * Split defaults use `<sourceId>::default::<destAccountId>`; this strips the suffix.
+ */
+export function getRootTxId(txId: string): string {
+  const sep = txId.indexOf("::default::");
+  return sep === -1 ? txId : txId.slice(0, sep);
+}

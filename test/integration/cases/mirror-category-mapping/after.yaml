@@ -1,0 +1,41 @@
+# After cross-budget mirror with categoryMapping { Groceries: GroceriesJoint }:
+#   Rum (unmapped) → null
+#   Groceries (mapped) → GroceriesJoint
+
+budgets:
+  A:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-15"
+            amount: -16000
+            payee_name: Total Bev
+            notes: "Friday night rum"
+            category: Rum
+            cleared: null
+            imported_id: null
+          - date: "2025-01-20"
+            amount: -8000
+            payee_name: Costco
+            notes: "weekly groceries"
+            category: Groceries
+            cleared: null
+            imported_id: null
+  B:
+    accounts:
+      recv:
+        transactions:
+          - date: "2025-01-15"
+            amount: -16000
+            payee_name: Total Bev
+            notes: "Friday night rum"
+            category: null
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"
+          - date: "2025-01-20"
+            amount: -8000
+            payee_name: Costco
+            notes: "weekly groceries"
+            category: GroceriesJoint
+            cleared: null
+            imported_id: "ABMirror:A:TX-2"

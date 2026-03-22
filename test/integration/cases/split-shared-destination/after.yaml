@@ -1,0 +1,39 @@
+# After two split steps both targeting A:shared:
+#   #groceries → shared at 0.5x: Costco -10000 → -5000
+#   #utilities → shared at 1.0x: Xcel -6000 → -6000
+
+budgets:
+  A:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-15"
+            amount: -10000
+            payee_name: Costco
+            notes: "#groceries weekly bulk buy"
+            category: Groceries
+            cleared: null
+            imported_id: null
+          - date: "2025-01-20"
+            amount: -6000
+            payee_name: Xcel Energy
+            notes: "#utilities electric bill"
+            category: Utilities
+            cleared: null
+            imported_id: null
+      shared:
+        transactions:
+          - date: "2025-01-15"
+            amount: -5000
+            payee_name: Costco
+            notes: "#groceries weekly bulk buy"
+            category: Groceries
+            cleared: null
+            imported_id: "ABMirror:A:TX-1"
+          - date: "2025-01-20"
+            amount: -6000
+            payee_name: Xcel Energy
+            notes: "#utilities electric bill"
+            category: Utilities
+            cleared: null
+            imported_id: "ABMirror:A:TX-2"

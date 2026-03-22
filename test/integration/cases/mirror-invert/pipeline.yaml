@@ -1,0 +1,9 @@
+pipeline:
+  - type: mirror
+    source:
+      budget: A
+      accounts: ["checking"]
+    destination:
+      budget: A
+      account: offset
+    invert: true

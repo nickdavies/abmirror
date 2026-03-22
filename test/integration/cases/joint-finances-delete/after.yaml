@@ -1,0 +1,38 @@
+# After pipeline:
+#   joint_expenses: stale TX-7 copy (TX-C) deleted, TX-6 copy (TX-B) preserved
+#   pay_a: stale TX-7 copy (TX-D) deleted, nothing added (no #personal tx in checking)
+#   pay_b: stale TX-7 copy (TX-E) deleted, nothing added
+#   checking: unchanged
+#
+# Global sort:
+#   TX-1: Joint:checking Total Escape Games (2025-01-25, null, -30000)
+#   TX-2: Joint:joint_expenses Total Escape Games copy (2025-01-25, null, -15000)
+#
+# TX-B imported_id: ABMirror:Joint:TX-1::default::acct-Joint-joint_expenses
+# (the ::default:: suffix is preserved through both import and export rewrites)
+
+budgets:
+  Joint:
+    accounts:
+      checking:
+        transactions:
+          - date: "2025-01-25"
+            amount: -30000
+            payee_name: Total Escape Games
+            notes: null
+            category: Games
+            cleared: null
+            imported_id: null
+      joint_expenses:
+        transactions:
+          - date: "2025-01-25"
+            amount: -15000
+            payee_name: Total Escape Games
+            notes: null
+            category: Games
+            cleared: null
+            imported_id: "ABMirror:Joint:TX-1::default::acct-Joint-joint_expenses"
+      pay_a:
+        transactions: []
+      pay_b:
+        transactions: []

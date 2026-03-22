@@ -1,0 +1,27 @@
+# split-then-mirror: two-step pipeline where step 2 depends on step 1's output.
+# Step 1: split A:checking (#joint #50/50) → A:recv at -0.5 multiplier.
+# Step 2: mirror A:recv → B:recv.
+# Tests that the mirror preserves the canonical origin (ABMirror:A:<source-tx>)
+# through the chain — B:recv's copy points to the original A:checking tx, not
+# the intermediate A:recv split output.
+
+budgets:
+  A:
+    accounts:
+      checking:
+        transactions:
+          - id: TX-1
+            date: "2025-01-15"
+            amount: -10000
+            payee_name: Starbucks
+            notes: "#joint #50/50 morning coffee"
+            category: Dining Out
+            cleared: null
+            imported_id: null
+            subs: []
+      recv:
+        transactions: []
+  B:
+    accounts:
+      recv:
+        transactions: []

@@ -9,12 +9,12 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
+    "test:yaml": "vitest run test/integration/yaml-cases.test.ts",
     "typecheck": "tsc --noEmit",
-    "test:integration": "bash test/integration/run.sh"
+    "test:e2e": "bash test/e2e/run.sh"
   },
   "dependencies": {
     "@actual-app/api": "^26.3.0",
-    "add": "^2.0.6",
     "commander": "^12.0.0",
     "read": "^1.0.7",
     "yaml": "^2.4.0",
