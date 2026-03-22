@@ -1,30 +1,30 @@
 # delete-stale-split: split step with stale copy in destination.
-# solo:route_a has a stale copy (GHOST-01) from a since-deleted source tx.
-# solo:checking has Coffee with #route_a which creates a new copy.
-# Expected: Ghost deleted, Coffee split copy added.
+# A:partner has a stale copy (GHOST-01) from a since-deleted source tx.
+# A:checking has Starbucks with #shared which creates a new copy.
+# Expected: Ghost deleted, Starbucks split copy added.
 
 budgets:
-  solo:
+  A:
     accounts:
       checking:
         transactions:
           - id: TX-1
             date: "2025-01-15"
             amount: -10000
-            payee_name: Coffee
-            notes: "#route_a"
-            category: null
+            payee_name: Starbucks
+            notes: "#shared morning coffee"
+            category: Dining Out
             cleared: null
             imported_id: null
             subs: []
-      route_a:
+      partner:
         transactions:
           - id: TX-2
             date: "2025-01-10"
             amount: -5000
-            payee_name: "Ghost Payee"
-            notes: null
-            category: null
+            payee_name: Panera
+            notes: "Tuesday lunch"
+            category: Dining Out
             cleared: null
-            imported_id: "ABMirror:solo:GHOST-01"
+            imported_id: "ABMirror:A:GHOST-01"
             subs: []

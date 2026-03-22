@@ -1,39 +1,39 @@
 # After running the mirror step:
-#   src:checking → dst:recv (all transactions, no invert)
+#   A:checking → B:recv (all transactions, no invert)
 budgets:
-  dst:
+  B:
     accounts:
       recv:
         transactions:
           - date: "2025-01-15"
             amount: -10000
-            payee_name: Coffee
-            notes: null
+            payee_name: Starbucks
+            notes: "morning coffee"
             category: null
             cleared: null
-            imported_id: "ABMirror:src:TX-1"
+            imported_id: "ABMirror:A:TX-1"
           - date: "2025-01-20"
             amount: -5000
-            payee_name: Lunch
-            notes: null
+            payee_name: Chipotle
+            notes: "team lunch"
             category: null
             cleared: null
-            imported_id: "ABMirror:src:TX-2"
-  src:
+            imported_id: "ABMirror:A:TX-2"
+  A:
     accounts:
       checking:
         transactions:
           - date: "2025-01-15"
             amount: -10000
-            payee_name: Coffee
-            notes: null
-            category: null
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
             cleared: null
             imported_id: null
           - date: "2025-01-20"
             amount: -5000
-            payee_name: Lunch
-            notes: null
-            category: null
+            payee_name: Chipotle
+            notes: "team lunch"
+            category: Dining Out
             cleared: null
             imported_id: null

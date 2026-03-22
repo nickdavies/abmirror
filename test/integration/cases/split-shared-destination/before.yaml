@@ -3,7 +3,7 @@
 # Step 2: #utilities → shared at 1.0x
 
 budgets:
-  solo:
+  A:
     accounts:
       checking:
         transactions:
@@ -11,8 +11,8 @@ budgets:
             date: "2025-01-15"
             amount: -10000
             payee_name: Costco
-            notes: "#groceries"
-            category: null
+            notes: "#groceries weekly bulk buy"
+            category: Groceries
             cleared: null
             imported_id: null
             subs: []
@@ -20,8 +20,8 @@ budgets:
             date: "2025-01-20"
             amount: -6000
             payee_name: Xcel Energy
-            notes: "#utilities"
-            category: null
+            notes: "#utilities electric bill"
+            category: Utilities
             cleared: null
             imported_id: null
             subs: []

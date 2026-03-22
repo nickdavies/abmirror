@@ -1,9 +1,9 @@
 pipeline:
   - type: split
-    budget: solo
+    budget: A
     source:
       accounts: ["checking"]
     tags:
-      "#route_a":
+      "#shared":
         multiplier: 1
-        destination_account: route_a
+        destination_account: partner

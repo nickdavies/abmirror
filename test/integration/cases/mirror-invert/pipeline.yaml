@@ -1,9 +1,9 @@
 pipeline:
   - type: mirror
     source:
-      budget: solo
+      budget: A
       accounts: ["checking"]
     destination:
-      budget: solo
+      budget: A
       account: offset
     invert: true

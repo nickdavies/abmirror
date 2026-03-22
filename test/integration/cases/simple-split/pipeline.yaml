@@ -1,6 +1,6 @@
 pipeline:
   - type: split
-    budget: src
+    budget: A
     source:
       accounts: "checking"
       requiredTags: ["#joint"]
@@ -10,4 +10,4 @@ pipeline:
         destination_account: "recv"
       "#0/100":
         multiplier: -1
-        destination_account: "recv" 
+        destination_account: "recv"

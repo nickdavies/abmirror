@@ -13,9 +13,9 @@ budgets:
           - id: TX-1
             date: "2025-01-15"
             amount: -10000
-            payee_name: Coffee
-            notes: "#joint #50/50"
-            category: null
+            payee_name: Starbucks
+            notes: "#joint #50/50 morning coffee"
+            category: Dining Out
             cleared: null
             imported_id: null
             subs: []

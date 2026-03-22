@@ -1,5 +1,5 @@
 budgets:
-  src:
+  A:
     accounts:
       recv:
         transactions:
@@ -9,21 +9,21 @@ budgets:
             notes: "#joint #50/50 Rum"
             category: Rum
             cleared: null
-            imported_id: "ABMirror:src:TX-1"
+            imported_id: "ABMirror:A:TX-1"
           - date: "2025-01-20"
             amount: 2000
             payee_name: costco
             notes: "#joint #0/100 spent $20 on redbull for partner"
             category: null
             cleared: null
-            imported_id: "ABMirror:src:TX-3-SUB-2"
+            imported_id: "ABMirror:A:TX-3-SUB-2"
           - date: "2025-01-20"
             amount: 3000
             payee_name: Costco
             notes: "#joint #50/50 shared part of groceries"
             category: Groceries
             cleared: null
-            imported_id: "ABMirror:src:TX-3-SUB-1"
+            imported_id: "ABMirror:A:TX-3-SUB-1"
       checking:
         transactions:
           - date: "2025-01-15"
@@ -35,9 +35,9 @@ budgets:
             imported_id: null
           - date: "2025-01-20"
             amount: -5000
-            payee_name: Lunch
-            notes: "not split"
-            category: null
+            payee_name: Chipotle
+            notes: "personal lunch"
+            category: Dining Out
             cleared: null
             imported_id: null
           - date: "2025-01-20"

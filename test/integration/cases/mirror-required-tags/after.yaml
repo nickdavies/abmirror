@@ -1,39 +1,39 @@
-# Only TX-1 (Groceries, #joint) is mirrored. TX-2 and TX-3 are skipped.
+# Only TX-1 (Trader Joe's, #joint) is mirrored. TX-2 and TX-3 are skipped.
 
 budgets:
-  src:
+  A:
     accounts:
       checking:
         transactions:
           - date: "2025-02-01"
             amount: -15000
-            payee_name: Groceries
-            notes: "#joint"
-            category: null
+            payee_name: Trader Joe's
+            notes: "#joint weekly groceries"
+            category: Groceries
             cleared: null
             imported_id: null
           - date: "2025-02-05"
             amount: -3000
-            payee_name: Coffee
-            notes: null
-            category: null
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
             cleared: null
             imported_id: null
           - date: "2025-02-10"
             amount: -8000
-            payee_name: Gas
-            notes: "#other"
-            category: null
+            payee_name: Shell
+            notes: "#other road trip fuel"
+            category: Gas
             cleared: null
             imported_id: null
-  dst:
+  B:
     accounts:
       recv:
         transactions:
           - date: "2025-02-01"
             amount: -15000
-            payee_name: Groceries
-            notes: "#joint"
+            payee_name: Trader Joe's
+            notes: "#joint weekly groceries"
             category: null
             cleared: null
-            imported_id: "ABMirror:src:TX-1"
+            imported_id: "ABMirror:A:TX-1"

@@ -1,6 +1,6 @@
 pipeline:
   - type: split
-    budget: solo
+    budget: A
     source:
       accounts: "checking"
       requiredTags: ["#groceries"]
@@ -10,7 +10,7 @@ pipeline:
         destination_account: "shared"
 
   - type: split
-    budget: solo
+    budget: A
     source:
       accounts: "checking"
       requiredTags: ["#utilities"]

@@ -1,45 +1,45 @@
 # After pipeline:
-#   solo:offset gets inverted copies of both checking transactions.
-#   Coffee -10000 → +10000, Lunch -5000 → +5000.
+#   A:offset gets inverted copies of both checking transactions.
+#   Starbucks -10000 → +10000, Chipotle -5000 → +5000.
 #
 # Global sort:
-#   TX-1: solo:checking Coffee (2025-01-15, -10000)
-#   TX-2: solo:checking Lunch (2025-01-20, -5000)
-#   TX-3: solo:offset Coffee inverted (2025-01-15, +10000)
-#   TX-4: solo:offset Lunch inverted (2025-01-20, +5000)
+#   TX-1: A:checking Starbucks (2025-01-15, -10000)
+#   TX-2: A:checking Chipotle (2025-01-20, -5000)
+#   TX-3: A:offset Starbucks inverted (2025-01-15, +10000)
+#   TX-4: A:offset Chipotle inverted (2025-01-20, +5000)
 
 budgets:
-  solo:
+  A:
     accounts:
       checking:
         transactions:
           - date: "2025-01-15"
             amount: -10000
-            payee_name: Coffee
-            notes: null
-            category: null
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
             cleared: null
             imported_id: null
           - date: "2025-01-20"
             amount: -5000
-            payee_name: Lunch
-            notes: null
-            category: null
+            payee_name: Chipotle
+            notes: "Friday lunch"
+            category: Dining Out
             cleared: null
             imported_id: null
       offset:
         transactions:
           - date: "2025-01-15"
             amount: 10000
-            payee_name: Coffee
-            notes: null
-            category: null
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
             cleared: null
-            imported_id: "ABMirror:solo:TX-1"
+            imported_id: "ABMirror:A:TX-1"
           - date: "2025-01-20"
             amount: 5000
-            payee_name: Lunch
-            notes: null
-            category: null
+            payee_name: Chipotle
+            notes: "Friday lunch"
+            category: Dining Out
             cleared: null
-            imported_id: "ABMirror:solo:TX-2"
+            imported_id: "ABMirror:A:TX-2"

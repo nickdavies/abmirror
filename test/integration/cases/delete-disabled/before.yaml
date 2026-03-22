@@ -2,29 +2,29 @@
 # Same setup as delete-stale-mirror but stale copy must SURVIVE.
 
 budgets:
-  dst:
+  B:
     accounts:
       recv:
         transactions:
           - id: TX-1
             date: "2025-01-10"
             amount: -5000
-            payee_name: "Ghost Payee"
-            notes: null
-            category: null
+            payee_name: Panera
+            notes: "Tuesday lunch"
+            category: Dining Out
             cleared: null
-            imported_id: "ABMirror:src:GHOST-01"
+            imported_id: "ABMirror:A:GHOST-01"
             subs: []
-  src:
+  A:
     accounts:
       checking:
         transactions:
           - id: TX-2
             date: "2025-01-15"
             amount: -10000
-            payee_name: Coffee
-            notes: null
-            category: null
+            payee_name: Starbucks
+            notes: "morning coffee"
+            category: Dining Out
             cleared: null
             imported_id: null
             subs: []

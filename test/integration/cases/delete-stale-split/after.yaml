@@ -1,29 +1,29 @@
 # After pipeline:
-#   solo:route_a: Ghost deleted, Coffee split copy added
-#   solo:checking: unchanged
+#   A:partner: Ghost deleted, Starbucks split copy added
+#   A:checking: unchanged
 #
-# Global sort (checking < route_a, same date/notes/payee Coffee):
-#   TX-1: solo:checking Coffee original
-#   TX-2: solo:route_a Coffee split copy
+# Global sort (checking < partner, same date/notes/payee Starbucks):
+#   TX-1: A:checking Starbucks original
+#   TX-2: A:partner Starbucks split copy
 
 budgets:
-  solo:
+  A:
     accounts:
       checking:
         transactions:
           - date: "2025-01-15"
             amount: -10000
-            payee_name: Coffee
-            notes: "#route_a"
-            category: null
+            payee_name: Starbucks
+            notes: "#shared morning coffee"
+            category: Dining Out
             cleared: null
             imported_id: null
-      route_a:
+      partner:
         transactions:
           - date: "2025-01-15"
             amount: -10000
-            payee_name: Coffee
-            notes: "#route_a"
-            category: null
+            payee_name: Starbucks
+            notes: "#shared morning coffee"
+            category: Dining Out
             cleared: null
-            imported_id: "ABMirror:solo:TX-1"
+            imported_id: "ABMirror:A:TX-1"

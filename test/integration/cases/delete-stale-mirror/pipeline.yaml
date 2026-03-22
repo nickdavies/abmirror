@@ -1,10 +1,10 @@
 pipeline:
   - type: mirror
     source:
-      budget: src
+      budget: A
       accounts: all
     destination:
-      budget: dst
+      budget: B
       account: recv
     invert: false
     delete: true

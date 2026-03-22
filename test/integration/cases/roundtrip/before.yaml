@@ -1,13 +1,13 @@
 budgets:
-  alpha:
+  A:
     accounts:
       checking:
         transactions:
           - id: TX-1
             date: "2025-02-01"
             amount: -8500
-            payee_name: Groceries
-            notes: "#joint #50/50"
+            payee_name: Trader Joe's
+            notes: "#joint #50/50 weekly groceries"
             category: Food
             cleared: null
             imported_id: null
@@ -15,8 +15,8 @@ budgets:
           - id: TX-2
             date: "2025-02-10"
             amount: -30000
-            payee_name: Rent
-            notes: "#joint #0/100"
+            payee_name: Landlord Properties
+            notes: "#joint #0/100 rent payment"
             category: Housing
             cleared: null
             imported_id: null
