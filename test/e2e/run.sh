@@ -3,10 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="${ROOT_DIR}/test/e2e/docker-compose.yml"
-SERVER_URL="http://localhost:5007"
 HEALTH_TIMEOUT_SECS=30
 SERVER_PASSWORD="test"
 ACTUAL_ENV_DATA_DIR="${ROOT_DIR}/test/e2e/.tmp-actual-data"
+
+# Pick a random free port to avoid conflicts with local dev servers.
+E2E_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')"
+export E2E_PORT
+SERVER_URL="http://localhost:${E2E_PORT}"
 
 MODE=""
 CONTAINER_NAME="ab-mirror-it-actual-server"
@@ -41,7 +45,7 @@ else
   docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
   docker run --pull=always --rm -d \
     --name "${CONTAINER_NAME}" \
-    -p 5007:5006 \
+    -p "${E2E_PORT}:5006" \
     --tmpfs /data \
     actualbudget/actual-server:latest >/dev/null
 fi
@@ -68,8 +72,8 @@ fi
 echo "Building ab-mirror..."
 (cd "${ROOT_DIR}" && npm run build)
 
-echo "Running blackbox integration test..."
-(cd "${ROOT_DIR}" && npx tsx test/e2e/integration-test.ts)
+echo "Running blackbox integration test on port ${E2E_PORT}..."
+(cd "${ROOT_DIR}" && E2E_SERVER_URL="${SERVER_URL}" npx tsx test/e2e/integration-test.ts)
 
 echo "Integration test completed."
 

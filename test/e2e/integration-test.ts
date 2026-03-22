@@ -74,7 +74,7 @@ type AccountRef = { alias: BudgetAlias; account: AccountName };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SERVER_URL = "http://localhost:5007";
+const SERVER_URL = process.env.E2E_SERVER_URL ?? "http://localhost:5007";
 const SERVER_PASSWORD = "test";
 const TX_START = "2000-01-01";
 const TX_END = "2100-01-01";

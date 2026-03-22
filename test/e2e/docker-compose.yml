@@ -2,7 +2,7 @@ services:
   actual-server:
     image: actualbudget/actual-server:latest
     ports:
-      - "5007:5006"
+      - "${E2E_PORT:-5007}:5006"
     tmpfs:
       - /data
 
