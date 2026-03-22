@@ -55,8 +55,8 @@ describe("split engine with subtransactions", () => {
       is_parent: true,
       notes: "parent note",
       subtransactions: [
-        mkTx("sub-1", { id: "sub-1", notes: "#sync #50/50 groceries", amount: -6000 }),
-        mkTx("sub-2", { id: "sub-2", notes: "#sync no-action-tag", amount: -4000 }),
+        mkTx("sub-1", { id: "sub-1", notes: "#sync #50/50 groceries", amount: -6000, payee: "payee-uuid-costco" }),
+        mkTx("sub-2", { id: "sub-2", notes: "#sync no-action-tag", amount: -4000, payee: "payee-uuid-other" }),
       ],
     });
 
@@ -76,6 +76,7 @@ describe("split engine with subtransactions", () => {
     expect(sub1Entry!.tx.amount).toBe(Math.round(-6000 * -0.5));
     expect(sub1Entry!.tx.imported_id).toBe(formatImportedId(BUDGET_ID, "sub-1"));
     expect(sub1Entry!.tx.date).toBe("2025-01-15");
+    expect(sub1Entry!.tx.payee).toBe("payee-uuid-costco");
 
     // sub-2 has #sync but no matching action tag → not in desired (no default action)
     expect(desired.has(`sub-2:${DEST_ACCOUNT}`)).toBe(false);
@@ -87,7 +88,7 @@ describe("split engine with subtransactions", () => {
     const parent = mkTx("parent-2", {
       is_parent: true,
       subtransactions: [
-        mkTx("sub-A", { id: "sub-A", notes: "#sync #50/50", amount: -2000 }),
+        mkTx("sub-A", { id: "sub-A", notes: "#sync #50/50", amount: -2000, payee: "payee-uuid-store" }),
       ],
     });
 
@@ -111,7 +112,7 @@ describe("split engine with subtransactions", () => {
     const parent = mkTx("parent-3", {
       is_parent: true,
       subtransactions: [
-        mkTx("sub-default", { id: "sub-default", notes: "#sync no-known-tag", amount: -8000 }),
+        mkTx("sub-default", { id: "sub-default", notes: "#sync no-known-tag", amount: -8000, payee: "payee-uuid-default" }),
       ],
     });
 
@@ -129,5 +130,6 @@ describe("split engine with subtransactions", () => {
     expect(entry).toBeDefined();
     expect(entry!.tx.amount).toBe(Math.round(-8000 * -0.5));
     expect(entry!.tx.imported_id).toBe(formatImportedId(BUDGET_ID, logicalId));
+    expect(entry!.tx.payee).toBe("payee-uuid-default");
   });
 });

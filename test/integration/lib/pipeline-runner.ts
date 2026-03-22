@@ -105,6 +105,8 @@ function buildMirrorOptsInMemory(
 
   const destAccountId = resolveAccountId(dstBudget, step.destination.account);
 
+  // In-memory tests use category names as IDs, so categoryMapping names
+  // are already valid "UUIDs" — pass through directly as resolvedCategoryMapping.
   return {
     sourceBudgetAlias: step.source.budget,
     sourceBudgetId: srcBudget.id,
@@ -121,6 +123,7 @@ function buildMirrorOptsInMemory(
     updateFields: step.updateFields ?? false,
     globalTxIndex,
     rootTxIndex,
+    resolvedCategoryMapping: step.categoryMapping,
   };
 }
 

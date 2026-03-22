@@ -67,10 +67,16 @@ describe("createMirrorEngine", () => {
       const engine = createMirrorEngine(baseStep);
       const sourceTx = mkTx("source-tx-id", {
         imported_id: formatImportedId("OtherBudget", "tx-1"),
+        payee: "payee-uuid-canonical",
+        payee_name: "Canonical Payee",
       });
       const { desired } = engine.propose([sourceTx], baseOpts);
       expect(desired.has("tx-1:dest-acct-id")).toBe(true);
       expect(desired.has("source-tx-id:dest-acct-id")).toBe(false);
+      const entry = desired.get("tx-1:dest-acct-id");
+      // Cross-budget: uses payee_name, not payee UUID
+      expect(entry?.tx.payee_name).toBe("Canonical Payee");
+      expect(entry?.tx.payee).toBeUndefined();
     });
 
     it("uses normal key when source has null imported_id", () => {
@@ -145,6 +151,59 @@ describe("createMirrorEngine", () => {
       const { desired } = engine.propose([sourceTx], baseOpts);
       const entry = desired.get("src-1:dest-acct-id");
       expect(entry?.tx.imported_id).toBe(formatImportedId(SOURCE_BUDGET, "src-1"));
+    });
+
+    it("preserves payee UUID from source transaction (same-budget)", () => {
+      const engine = createMirrorEngine(baseStep);
+      const sourceTx = mkTx("src-1", { payee: "payee-uuid-123" });
+      const sameBudgetOpts = { ...baseOpts, sourceBudgetId: "X", destBudgetId: "X" };
+      const { desired } = engine.propose([sourceTx], sameBudgetOpts);
+      const entry = desired.get("src-1:dest-acct-id");
+      expect(entry?.tx.payee).toBe("payee-uuid-123");
+    });
+  });
+
+  describe("cross-budget payee handling", () => {
+    it("uses payee_name instead of payee UUID for cross-budget mirrors", () => {
+      const engine = createMirrorEngine(baseStep);
+      const sourceTx = mkTx("src-1", {
+        payee: "uuid-123",
+        payee_name: "Starbucks",
+      });
+      const { desired } = engine.propose([sourceTx], baseOpts);
+      const entry = desired.get("src-1:dest-acct-id");
+      expect(entry?.tx.payee_name).toBe("Starbucks");
+      expect(entry?.tx.payee).toBeUndefined();
+    });
+
+    it("preserves payee UUID for same-budget mirrors", () => {
+      const engine = createMirrorEngine(baseStep);
+      const sourceTx = mkTx("src-1", {
+        payee: "uuid-123",
+        payee_name: "Starbucks",
+      });
+      const sameBudgetOpts = {
+        ...baseOpts,
+        sourceBudgetId: "same-budget",
+        destBudgetId: "same-budget",
+      };
+      const { desired } = engine.propose([sourceTx], sameBudgetOpts);
+      const entry = desired.get("src-1:dest-acct-id");
+      expect(entry?.tx.payee).toBe("uuid-123");
+      expect(entry?.tx.payee_name).toBeUndefined();
+    });
+
+    it("uses payee_name for cross-budget canonical-key path", () => {
+      const engine = createMirrorEngine(baseStep);
+      const sourceTx = mkTx("src-1", {
+        imported_id: formatImportedId("OtherBudget", "tx-1"),
+        payee: "uuid-456",
+        payee_name: "Target",
+      });
+      const { desired } = engine.propose([sourceTx], baseOpts);
+      const entry = desired.get("tx-1:dest-acct-id");
+      expect(entry?.tx.payee_name).toBe("Target");
+      expect(entry?.tx.payee).toBeUndefined();
     });
   });
 

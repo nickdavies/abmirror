@@ -113,7 +113,7 @@ export function createSplitEngine(step: SplitStep): SyncEngine {
               tx: {
                 date: tx.date,
                 amount,
-                payee_name: tx.payee_name ?? undefined,
+                payee: tx.payee ?? undefined,
                 notes: tx.notes ?? undefined,
                 category: tx.category ?? undefined,
                 cleared: tx.cleared,
@@ -129,7 +129,7 @@ export function createSplitEngine(step: SplitStep): SyncEngine {
         if (matchingTags.length > 1) {
           opts.reporter?.warn("splitter.multiTagMatch", {
             txId: tx.id,
-            payee: tx.payee_name ?? "?",
+            payee: tx.payee ?? "?",
             date: tx.date,
             matchingTags: matchingTags.map(([t]) => t),
           });
@@ -144,7 +144,7 @@ export function createSplitEngine(step: SplitStep): SyncEngine {
           tx: {
             date: tx.date,
             amount,
-            payee_name: tx.payee_name ?? undefined,
+            payee: tx.payee ?? undefined,
             notes: tx.notes ?? undefined,
             category: tx.category ?? undefined,
             cleared: tx.cleared,

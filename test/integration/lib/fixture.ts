@@ -341,6 +341,26 @@ export function runtimeAccountId(budgetAlias: string, accountName: string): stri
 
 // ─── importFixtureToRuntime ───────────────────────────────────────────────────
 
+/** Generate a deterministic payee UUID from budget alias and payee name. */
+function makePayeeId(budgetAlias: string, name: string): string {
+  return `payee-${budgetAlias}-${name.replace(/[^A-Za-z0-9]/g, "-")}`;
+}
+
+/** Register a payee name in a budget's payee maps, returning the UUID. */
+function registerPayee(
+  payees: Map<string, string>,
+  payeesByName: Map<string, string>,
+  budgetAlias: string,
+  name: string
+): string {
+  const existing = payeesByName.get(name);
+  if (existing) return existing;
+  const id = makePayeeId(budgetAlias, name);
+  payees.set(id, name);
+  payeesByName.set(name, id);
+  return id;
+}
+
 /**
  * Load a FixtureSnapshot into a live RuntimeEnv.
  * Returns the env together with an IdMap so callers can carry the budget↔alias
@@ -371,6 +391,8 @@ export function importFixtureToRuntime(fixture: FixtureSnapshot): {
 
     const accounts = new Map<string, RuntimeAccount>();
     const accountsByName = new Map<string, RuntimeAccount>();
+    const payees = new Map<string, string>();
+    const payeesByName = new Map<string, string>();
 
     for (const [accountName, acctSnap] of Object.entries(budgetSnap.accounts)) {
       const accountId = runtimeAccountId(alias, accountName);
@@ -384,6 +406,10 @@ export function importFixtureToRuntime(fixture: FixtureSnapshot): {
         idMap.placeholderToTxId.set(txSnap.id, txSnap.id);
         idMap.txIdToPlaceholder.set(txSnap.id, txSnap.id);
 
+        const txPayeeId = txSnap.payee_name
+          ? registerPayee(payees, payeesByName, alias, txSnap.payee_name)
+          : null;
+
         const subs: RuntimeSubTransaction[] = [];
         for (const sub of txSnap.subs) {
           if (seenIds.has(sub.id)) {
@@ -392,10 +418,16 @@ export function importFixtureToRuntime(fixture: FixtureSnapshot): {
           seenIds.add(sub.id);
           idMap.placeholderToTxId.set(sub.id, sub.id);
           idMap.txIdToPlaceholder.set(sub.id, sub.id);
+
+          const subPayeeId = sub.payee_name
+            ? registerPayee(payees, payeesByName, alias, sub.payee_name)
+            : null;
+
           subs.push({
             id: sub.id,
             date: sub.date,
             amount: sub.amount,
+            payee: subPayeeId,
             payee_name: sub.payee_name,
             notes: sub.notes,
             category: sub.category,
@@ -408,6 +440,7 @@ export function importFixtureToRuntime(fixture: FixtureSnapshot): {
           id: txSnap.id,
           date: txSnap.date,
           amount: txSnap.amount,
+          payee: txPayeeId,
           payee_name: txSnap.payee_name,
           notes: txSnap.notes,
           category: txSnap.category,
@@ -430,7 +463,7 @@ export function importFixtureToRuntime(fixture: FixtureSnapshot): {
       accountsByName.set(accountName, account);
     }
 
-    env.budgets.set(alias, { id: budgetId, alias, accounts, accountsByName });
+    env.budgets.set(alias, { id: budgetId, alias, accounts, accountsByName, payees, payeesByName });
   }
 
   // ── Pass 2: rewrite imported_id using the now-complete IdMap ──────────────

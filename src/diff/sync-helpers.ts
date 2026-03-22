@@ -28,7 +28,7 @@ export interface TransactionUpdate {
   id: string;
   date: string;
   amount: number;
-  payee_name?: string;
+  payee?: string | null;
   notes?: string;
   category?: string | null;
   cleared?: boolean;
@@ -41,7 +41,7 @@ export interface SyncDiff {
 }
 
 export interface DiffOptions {
-  /** When true, compare and sync payee_name/notes/category/cleared (not just date/amount). */
+  /** When true, compare and sync payee/notes/category/cleared (not just date/amount). */
   updateFields?: boolean;
 }
 
@@ -73,14 +73,14 @@ export function computeDiff(
       const amountChanged = existingTx.amount !== amount;
 
       if (opts?.updateFields) {
-        const payeeChanged = !strEq(existingTx.payee_name, tx.payee_name);
+        const payeeChanged = (existingTx.payee ?? null) !== (tx.payee ?? null);
         const notesChanged = !strEq(existingTx.notes, tx.notes);
         const categoryChanged = (existingTx.category ?? null) !== (tx.category ?? null);
         const clearedChanged = (existingTx.cleared ?? false) !== (tx.cleared ?? false);
 
         if (dateChanged || amountChanged || payeeChanged || notesChanged || categoryChanged || clearedChanged) {
           const update: TransactionUpdate = { id: existingTx.id, date: tx.date, amount };
-          if (payeeChanged) update.payee_name = tx.payee_name ?? "";
+          if (payeeChanged) update.payee = tx.payee ?? null;
           if (notesChanged) update.notes = tx.notes ?? "";
           if (categoryChanged) update.category = tx.category ?? null;
           if (clearedChanged) update.cleared = tx.cleared ?? false;

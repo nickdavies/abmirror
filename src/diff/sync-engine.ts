@@ -52,7 +52,7 @@ export interface EngineOpts {
    * a mirrored copy is only deleted if its canonical source tx no longer exists.
    */
   rootTxIndex?: RootTxIndex;
-  /** When true, update payee_name/notes/category/cleared on existing copies (not just date/amount). */
+  /** When true, update payee/notes/category/cleared on existing copies (not just date/amount). */
   updateFields?: boolean;
   /** Max changes before aborting. 0 or undefined = unlimited. */
   maxChangesPerStep?: number;
@@ -62,6 +62,11 @@ export interface EngineOpts {
    * defer to owner steps when the dest already has a canonical entry.
    */
   destOwnerMap?: Map<string, Set<string>>;
+  /**
+   * Mirror only: category mapping resolved from config names to budget-local UUIDs.
+   * Keys are source category UUIDs, values are dest category UUIDs.
+   */
+  resolvedCategoryMapping?: Record<string, string>;
 }
 
 export interface ProposeResult {
@@ -111,6 +116,42 @@ export async function runSyncEngine(
     sourceTxFlat.push(...(txs as ActualTransaction[]));
   }
 
+  // For cross-budget steps, enrich source txs with payee names while source budget
+  // is still open. The dest budget won't have these payee UUIDs, so mirror engine
+  // will pass payee_name instead, and Phase 3 will resolve to dest-local UUIDs.
+  // Only fetch payees referenced by transactions in the lookback window to avoid
+  // loading the full payee table on large budgets.
+  if (opts.sourceBudgetId !== opts.destBudgetId) {
+    const referencedPayeeIds = new Set<string>();
+    for (const tx of sourceTxFlat) {
+      if (tx.payee && !tx.payee_name) referencedPayeeIds.add(tx.payee);
+      if (tx.subtransactions) {
+        for (const sub of tx.subtransactions) {
+          if (sub.payee && !sub.payee_name) referencedPayeeIds.add(sub.payee);
+        }
+      }
+    }
+    if (referencedPayeeIds.size > 0) {
+      const sourcePayees = await actual.getPayees();
+      const payeeMap = new Map<string, string>();
+      for (const p of sourcePayees as Array<{ id: string; name: string }>) {
+        if (referencedPayeeIds.has(p.id)) payeeMap.set(p.id, p.name);
+      }
+      for (const tx of sourceTxFlat) {
+        if (tx.payee && !tx.payee_name) {
+          tx.payee_name = payeeMap.get(tx.payee) ?? null;
+        }
+        if (tx.subtransactions) {
+          for (const sub of tx.subtransactions) {
+            if (sub.payee && !sub.payee_name) {
+              sub.payee_name = payeeMap.get(sub.payee) ?? null;
+            }
+          }
+        }
+      }
+    }
+  }
+
   const filteredSourceTxs: ActualTransaction[] = [];
   for (const tx of selectTransactions(sourceTxFlat, selector)) {
     filteredSourceTxs.push(tx);
@@ -132,6 +173,27 @@ export async function runSyncEngine(
     )) as ActualTransaction[];
     const partial = indexExistingMirrored(destTxs);
     for (const [k, v] of partial) existing.set(k, v);
+  }
+
+  // For cross-budget steps, resolve payee_name on desired entries to dest-local
+  // payee UUIDs. Creates new payees in the dest budget as needed.
+  if (opts.sourceBudgetId !== opts.destBudgetId) {
+    const destPayees = await actual.getPayees();
+    const destPayeeByName = new Map(
+      (destPayees as Array<{ id: string; name: string }>).map((p) => [p.name, p.id])
+    );
+    for (const [, entry] of desired) {
+      if (entry.tx.payee_name && !entry.tx.payee) {
+        const destId = destPayeeByName.get(entry.tx.payee_name);
+        if (destId) {
+          entry.tx.payee = destId;
+        } else {
+          const newId = await actual.createPayee({ name: entry.tx.payee_name });
+          entry.tx.payee = newId;
+          destPayeeByName.set(entry.tx.payee_name, newId);
+        }
+      }
+    }
   }
 
   // --- Phase 4: Compute diff and apply ---

@@ -24,9 +24,28 @@ export async function buildMirrorOpts(
   },
   manager: BudgetManager
 ): Promise<EngineOpts> {
-  // Use cached budget IDs from preflight; only open dest to resolve account.
-  // Opening both budgets caused extra syncs that can fail during pipeline (sync_engine).
   const sourceInfo = manager.getInfo(step.source.budget);
+
+  // Resolve category name→name mapping to UUID→UUID if present.
+  // Requires opening source budget temporarily to read its categories.
+  let resolvedCategoryMapping: Record<string, string> | undefined;
+  if (step.categoryMapping && Object.keys(step.categoryMapping).length > 0) {
+    await manager.open(step.source.budget);
+    const srcCats = (await actual.getCategories()) as Array<{ id: string; name: string; group_id?: string }>;
+    const srcNameToId = new Map(srcCats.filter((c) => c.group_id).map((c) => [c.name, c.id]));
+
+    const destInfo = await manager.open(step.destination.budget);
+    const destCats = (await actual.getCategories()) as Array<{ id: string; name: string; group_id?: string }>;
+    const destNameToId = new Map(destCats.filter((c) => c.group_id).map((c) => [c.name, c.id]));
+
+    resolvedCategoryMapping = {};
+    for (const [srcName, destName] of Object.entries(step.categoryMapping)) {
+      const srcId = srcNameToId.get(srcName);
+      const destId = destNameToId.get(destName);
+      if (srcId && destId) resolvedCategoryMapping[srcId] = destId;
+    }
+  }
+
   const destInfo = await manager.open(step.destination.budget);
   const destAccounts = (await actual.getAccounts()) as import("../selector/types").ActualAccount[];
   const destResolved = resolveAccountId(
@@ -55,6 +74,7 @@ export async function buildMirrorOpts(
     rootTxIndex: opts.rootTxIndex,
     maxChangesPerStep: opts.maxChangesPerStep,
     destOwnerMap: opts.destOwnerMap,
+    resolvedCategoryMapping,
   };
 }
 
@@ -104,12 +124,13 @@ export function createMirrorEngine(step: MirrorStep): SyncEngine {
         }
 
         const amount = step.invert ? -sourceTx.amount : sourceTx.amount;
-        // Within same budget: pass category through. Across budgets: use mapping or null.
+        // Within same budget: pass category through. Across budgets: use resolved UUID mapping or null.
         const sameBudget = opts.sourceBudgetId === opts.destBudgetId;
+        const catMap = opts.resolvedCategoryMapping;
         const category = sameBudget
           ? (sourceTx.category ?? undefined)
-          : step.categoryMapping && sourceTx.category
-            ? (step.categoryMapping[sourceTx.category] ?? undefined)
+          : catMap && sourceTx.category
+            ? (catMap[sourceTx.category] ?? undefined)
             : undefined;
 
         if (isABMirrorId(sourceTx.imported_id)) {
@@ -124,7 +145,9 @@ export function createMirrorEngine(step: MirrorStep): SyncEngine {
               tx: {
                 date: sourceTx.date,
                 amount,
-                payee_name: sourceTx.payee_name ?? undefined,
+                ...(sameBudget
+                  ? { payee: sourceTx.payee ?? undefined }
+                  : { payee_name: sourceTx.payee_name ?? undefined }),
                 notes: sourceTx.notes ?? undefined,
                 category,
                 cleared: sourceTx.cleared,
@@ -141,7 +164,9 @@ export function createMirrorEngine(step: MirrorStep): SyncEngine {
           tx: {
             date: sourceTx.date,
             amount,
-            payee_name: sourceTx.payee_name ?? undefined,
+            ...(sameBudget
+              ? { payee: sourceTx.payee ?? undefined }
+              : { payee_name: sourceTx.payee_name ?? undefined }),
             notes: sourceTx.notes ?? undefined,
             category,
             cleared: sourceTx.cleared,

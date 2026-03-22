@@ -4,6 +4,7 @@ export type RuntimeSubTransaction = {
   id: string;
   date: string;
   amount: number;
+  payee?: string | null;
   payee_name?: string | null;
   notes?: string | null;
   category?: string | null;
@@ -15,6 +16,7 @@ export type RuntimeTransaction = {
   id: string;
   date: string;
   amount: number;
+  payee?: string | null;
   payee_name?: string | null;
   notes?: string | null;
   category?: string | null;
@@ -43,6 +45,10 @@ export type RuntimeBudget = {
   accounts: Map<string, RuntimeAccount>;
   /** Keyed by account name (from fixture) */
   accountsByName: Map<string, RuntimeAccount>;
+  /** Payee registry: UUID → name. Mimics the real Actual payees table. */
+  payees: Map<string, string>;
+  /** Reverse lookup: exact name → UUID. */
+  payeesByName: Map<string, string>;
 };
 
 export type RuntimeEnv = {

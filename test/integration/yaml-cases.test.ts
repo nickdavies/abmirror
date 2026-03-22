@@ -61,14 +61,18 @@ vi.mock("@actual-app/api", async () => {
       if (!budget) return [];
       const account = budget.accounts.get(accountId);
       if (!account) return [];
-      return getAccountTransactions(account, startDate, endDate).map((tx) => ({
-        ...tx,
-        account: accountId,
-        subtransactions: tx.subtransactions?.map((sub) => ({
-          ...sub,
+      // Exclude payee_name from output — real Actual API only returns payee (UUID).
+      return getAccountTransactions(account, startDate, endDate).map((tx) => {
+        const { payee_name: _, ...rest } = tx;
+        return {
+          ...rest,
           account: accountId,
-        })),
-      }));
+          subtransactions: tx.subtransactions?.map((sub) => {
+            const { payee_name: __, ...subRest } = sub;
+            return { ...subRest, account: accountId };
+          }),
+        };
+      });
     },
 
     // ── Write operations (increment changeCount so runOneRound can detect work) ─
@@ -85,11 +89,45 @@ vi.mock("@actual-app/api", async () => {
       const ids: string[] = [];
       for (const tx of txs) {
         const id = randomUUID();
+
+        // Resolve payee like the real API's resolvePayee:
+        // payee (UUID) takes precedence over payee_name (string).
+        let payeeId: string | null = null;
+        let payeeName: string | null = null;
+        const rawPayee = tx["payee"] as string | null | undefined;
+        const rawPayeeName = tx["payee_name"] as string | null | undefined;
+
+        if (rawPayee) {
+          payeeId = rawPayee;
+          // Resolve name: try current budget, then search all budgets (cross-budget convenience)
+          payeeName = budget.payees.get(rawPayee) ?? null;
+          if (!payeeName && mockState.env) {
+            for (const b of mockState.env.budgets.values()) {
+              const name = b.payees.get(rawPayee);
+              if (name) {
+                payeeName = name;
+                budget.payees.set(rawPayee, name);
+                budget.payeesByName.set(name, rawPayee);
+                break;
+              }
+            }
+          }
+        } else if (rawPayeeName) {
+          payeeId = budget.payeesByName.get(rawPayeeName) ?? null;
+          if (!payeeId) {
+            payeeId = randomUUID();
+            budget.payees.set(payeeId, rawPayeeName);
+            budget.payeesByName.set(rawPayeeName, payeeId);
+          }
+          payeeName = rawPayeeName;
+        }
+
         account.transactions.set(id, {
           id,
           date: tx["date"] as string,
           amount: (tx["amount"] as number) ?? 0,
-          payee_name: (tx["payee_name"] as string | null | undefined) ?? null,
+          payee: payeeId,
+          payee_name: payeeName,
           notes: (tx["notes"] as string | null | undefined) ?? null,
           category: (tx["category"] as string | null | undefined) ?? null,
           cleared: (tx["cleared"] as boolean | null | undefined) ?? null,
@@ -111,7 +149,27 @@ vi.mock("@actual-app/api", async () => {
       if (!found) throw new Error(`updateTransaction: tx ${id} not found`);
       if (changes.date !== undefined) found.tx.date = changes.date as string;
       if (changes.amount !== undefined) found.tx.amount = changes.amount as number;
-      if (changes.payee_name !== undefined) found.tx.payee_name = changes.payee_name as string | null;
+      if (changes.payee !== undefined) {
+        found.tx.payee = changes.payee as string | null;
+        if (changes.payee) {
+          // Resolve UUID → name: try local budget, then search all budgets
+          let name = found.budget.payees.get(changes.payee as string) ?? null;
+          if (!name && mockState.env) {
+            for (const b of mockState.env.budgets.values()) {
+              const n = b.payees.get(changes.payee as string);
+              if (n) {
+                name = n;
+                found.budget.payees.set(changes.payee as string, n);
+                found.budget.payeesByName.set(n, changes.payee as string);
+                break;
+              }
+            }
+          }
+          found.tx.payee_name = name;
+        } else {
+          found.tx.payee_name = null;
+        }
+      }
       if (changes.notes !== undefined) found.tx.notes = changes.notes as string | null;
       if (changes.category !== undefined) found.tx.category = changes.category as string | null;
       if (changes.cleared !== undefined) found.tx.cleared = changes.cleared as boolean | null;
@@ -125,6 +183,27 @@ vi.mock("@actual-app/api", async () => {
       if (!found) throw new Error(`deleteTransaction: tx ${id} not found`);
       found.tx.tombstone = true;
       mockState.changeCount++;
+    },
+
+    // ── Payee operations ──────────────────────────────────────────────────────
+
+    getPayees: async () => {
+      const budget = currentBudget();
+      if (!budget) return [];
+      return [...budget.payees.entries()].map(([id, name]) => ({
+        id,
+        name,
+        transfer_acct: null,
+      }));
+    },
+
+    createPayee: async (payee: { name: string }) => {
+      const budget = currentBudget();
+      if (!budget) throw new Error("createPayee: no budget open");
+      const id = randomUUID();
+      budget.payees.set(id, payee.name);
+      budget.payeesByName.set(payee.name, id);
+      return id;
     },
 
     // ── Lifecycle no-ops ─────────────────────────────────────────────────────

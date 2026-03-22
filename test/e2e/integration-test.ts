@@ -222,6 +222,24 @@ async function openBudget(fixture: Fixture, alias: BudgetAlias): Promise<void> {
   await actual.downloadBudget(fixture.budgets[alias].syncId);
 }
 
+/** Resolve payee UUIDs to names on transactions using getPayees(). */
+async function enrichPayeeNames(txs: TxLike[]): Promise<void> {
+  const payees = await actual.getPayees();
+  const payeeMap = new Map((payees as Array<{ id: string; name: string }>).map((p) => [p.id, p.name]));
+  for (const tx of txs) {
+    if (tx.payee && !tx.payee_name) {
+      tx.payee_name = payeeMap.get(tx.payee) ?? null;
+    }
+    if (tx.subtransactions) {
+      for (const sub of tx.subtransactions) {
+        if (sub.payee && !sub.payee_name) {
+          sub.payee_name = payeeMap.get(sub.payee) ?? null;
+        }
+      }
+    }
+  }
+}
+
 async function getAccountTxs(
   fixture: Fixture,
   alias: BudgetAlias,
@@ -230,7 +248,9 @@ async function getAccountTxs(
   await openBudget(fixture, alias);
   const accountId = fixture.budgets[alias].accountIds[accountName];
   assert(accountId, `Missing account "${accountName}" for budget "${alias}"`);
-  return (await actual.getTransactions(accountId, TX_START, TX_END)) as TxLike[];
+  const txs = (await actual.getTransactions(accountId, TX_START, TX_END)) as TxLike[];
+  await enrichPayeeNames(txs);
+  return txs;
 }
 
 /** Capture normalized snapshots for all accounts, grouped by budget to minimize opens. */
@@ -249,6 +269,7 @@ async function captureAllSnapshots(
           TX_START,
           TX_END
         )) as TxLike[];
+        await enrichPayeeNames(txs);
         map.set(`${alias}:${ref.account}`, normalizeAccountSnapshot(txs));
       }
     }
@@ -467,10 +488,6 @@ async function bootstrap(): Promise<Fixture> {
 
   // ─── Write pipeline config ──────────────────────────────────────────────────
 
-  const catA = budgets.A.categoryIds;
-  const catB = budgets.B.categoryIds;
-  const catJ = budgets.Joint.categoryIds;
-
   const config = {
     server: { url: SERVER_URL, password: SERVER_PASSWORD },
     dataDir: binaryDataDir,
@@ -561,7 +578,7 @@ async function bootstrap(): Promise<Fixture> {
         type: "mirror",
         source: { budget: "A", accounts: ["Recv"] },
         destination: { budget: "Joint", account: "PayA" },
-        categoryMapping: { [catA.Groceries]: catJ.GroceriesJoint },
+        categoryMapping: { Groceries: "GroceriesJoint" },
         delete: true,
       },
       // Step 9: Mirror B:Recv → Joint:PayB
@@ -569,7 +586,7 @@ async function bootstrap(): Promise<Fixture> {
         type: "mirror",
         source: { budget: "B", accounts: ["Recv"] },
         destination: { budget: "Joint", account: "PayB" },
-        categoryMapping: { [catB.Groceries]: catJ.GroceriesJoint },
+        categoryMapping: { Groceries: "GroceriesJoint" },
         delete: true,
       },
       // Step 10: Mirror Joint:PayB → Joint:PayA (invert)
@@ -593,7 +610,7 @@ async function bootstrap(): Promise<Fixture> {
         type: "mirror",
         source: { budget: "Joint", accounts: ["PayA"] },
         destination: { budget: "A", account: "Recv" },
-        categoryMapping: { [catJ.GroceriesJoint]: catA.Groceries },
+        categoryMapping: { GroceriesJoint: "Groceries" },
         delete: true,
       },
       // Step 13: Mirror Joint:PayB → B:Recv
@@ -601,7 +618,7 @@ async function bootstrap(): Promise<Fixture> {
         type: "mirror",
         source: { budget: "Joint", accounts: ["PayB"] },
         destination: { budget: "B", account: "Recv" },
-        categoryMapping: { [catJ.GroceriesJoint]: catB.Groceries },
+        categoryMapping: { GroceriesJoint: "Groceries" },
         delete: true,
       },
       // Step 14: Mirror Joint:JointExpenses → A:Joint (delete: false!)
@@ -687,10 +704,18 @@ async function assertAfterRun1(
       aRecvRum.imported_id?.startsWith("ABMirror:"),
       "A:Recv rum should have ABMirror imported_id"
     );
+    assert(
+      aRecvRum.payee_name === "Total Bev",
+      `A:Recv rum payee should be "Total Bev", got "${aRecvRum.payee_name}"`
+    );
 
     const aRecvSub1 = getOneByMarker(aRecv, MARKERS.aGroceriesSub1, "A:Recv sub1");
     assert(aRecvSub1.amount === 3000, `A:Recv sub1 amount: expected 3000, got ${aRecvSub1.amount}`);
     assert(aRecvSub1.category === catA.Groceries, "A:Recv sub1 category should be Groceries");
+    assert(
+      aRecvSub1.payee_name === "Costco",
+      `A:Recv sub1 payee should be "Costco", got "${aRecvSub1.payee_name}"`
+    );
 
     const aRecvSub2 = getOneByMarker(aRecv, MARKERS.aGroceriesSub2, "A:Recv sub2");
     assert(aRecvSub2.amount === 2000, `A:Recv sub2 amount: expected 2000, got ${aRecvSub2.amount}`);
@@ -704,6 +729,10 @@ async function assertAfterRun1(
     assert(
       aRecvBGroceries.category === catA.Groceries,
       "A:Recv B groceries category should be Groceries (mapped from GroceriesJoint)"
+    );
+    assert(
+      aRecvBGroceries.payee_name === "King Soopers",
+      `A:Recv B groceries payee should be "King Soopers" (cross-budget resolved), got "${aRecvBGroceries.payee_name}"`
     );
 
     const aRecvPersonalB = getOneByMarker(
@@ -720,6 +749,17 @@ async function assertAfterRun1(
     // ── A:Joint — 2 mirrors from JointExpenses ──────────────────────
     const aJoint = await getAccountTxs(fixture, "A", "Joint");
     assertCount(aJoint, 2, "A:Joint after run 1");
+
+    const aJointGames = getOneByMarker(aJoint, MARKERS.jointGames, "A:Joint games");
+    assert(
+      aJointGames.payee_name === "Total Escape Games",
+      `A:Joint games payee should be "Total Escape Games" (cross-budget resolved), got "${aJointGames.payee_name}"`
+    );
+    const aJointPersonalB = getOneByMarker(aJoint, MARKERS.jointPersonalB, "A:Joint personal_b");
+    assert(
+      aJointPersonalB.payee_name === "United Airlines",
+      `A:Joint personal_b payee should be "United Airlines" (cross-budget resolved), got "${aJointPersonalB.payee_name}"`
+    );
 
     // ── A:Savings — untouched ───────────────────────────────────────
     assertCount(await getAccountTxs(fixture, "A", "Savings"), 0, "A:Savings after run 1");
@@ -741,6 +781,10 @@ async function assertAfterRun1(
       bRecvGroceries.category === catB.Groceries,
       "B:Recv groceries split category should be Groceries"
     );
+    assert(
+      bRecvGroceries.payee_name === "King Soopers",
+      `B:Recv groceries split payee should be "King Soopers", got "${bRecvGroceries.payee_name}"`
+    );
 
     const bRecvRum = getOneByMarker(bRecv, MARKERS.aRum, "B:Recv rum from A via PayB");
     assert(
@@ -748,6 +792,10 @@ async function assertAfterRun1(
       `B:Recv rum amount: expected -8000, got ${bRecvRum.amount}`
     );
     assert(!bRecvRum.category, "B:Recv rum category should be null (Rum unmapped)");
+    assert(
+      bRecvRum.payee_name === "Total Bev",
+      `B:Recv rum payee should be "Total Bev" (cross-budget resolved), got "${bRecvRum.payee_name}"`
+    );
 
     const bRecvSub1 = getOneByMarker(bRecv, MARKERS.aGroceriesSub1, "B:Recv sub1 from PayB");
     assert(
@@ -792,6 +840,10 @@ async function assertAfterRun1(
       `Joint:AIndv rum amount: expected -16000, got ${aIndvRum.amount}`
     );
     assert(!aIndvRum.category, "Joint:AIndv rum category should be null (cross-budget, unmapped)");
+    assert(
+      aIndvRum.payee_name === "Total Bev",
+      `Joint:AIndv rum payee should be "Total Bev" (cross-budget resolved), got "${aIndvRum.payee_name}"`
+    );
 
     const aIndvSub1 = getOneByMarker(jointAIndv, MARKERS.aGroceriesSub1, "Joint:AIndv sub1");
     assert(
@@ -812,6 +864,10 @@ async function assertAfterRun1(
       bIndvGroceries.amount === -10000,
       `Joint:BIndv groceries amount: expected -10000, got ${bIndvGroceries.amount}`
     );
+    assert(
+      bIndvGroceries.payee_name === "King Soopers",
+      `Joint:BIndv groceries payee should be "King Soopers" (cross-budget resolved), got "${bIndvGroceries.payee_name}"`
+    );
 
     // ── Joint:Checking — unchanged ──────────────────────────────────
     assertCount(
@@ -830,6 +886,10 @@ async function assertAfterRun1(
       `JointExpenses games amount: expected -15000, got ${jeGames.amount}`
     );
     assert(jeGames.category === catJ.Games, "JointExpenses games category should be Games");
+    assert(
+      jeGames.payee_name === "Total Escape Games",
+      `JointExpenses games payee should be "Total Escape Games", got "${jeGames.payee_name}"`
+    );
 
     const jePersonalB = getOneByMarker(
       jointExpenses,
@@ -852,6 +912,10 @@ async function assertAfterRun1(
       `Joint:PayA rum amount: expected 8000, got ${payARum.amount}`
     );
     assert(!payARum.category, "Joint:PayA rum category should be null (Rum unmapped)");
+    assert(
+      payARum.payee_name === "Total Bev",
+      `Joint:PayA rum payee should be "Total Bev" (cross-budget resolved), got "${payARum.payee_name}"`
+    );
 
     const payASub1 = getOneByMarker(jointPayA, MARKERS.aGroceriesSub1, "Joint:PayA sub1");
     assert(
@@ -861,6 +925,10 @@ async function assertAfterRun1(
     assert(
       payASub1.category === catJ.GroceriesJoint,
       "Joint:PayA sub1 category should be GroceriesJoint"
+    );
+    assert(
+      payASub1.payee_name === "Costco",
+      `Joint:PayA sub1 payee should be "Costco" (cross-budget resolved), got "${payASub1.payee_name}"`
     );
 
     const payABGroceries = getOneByMarker(
@@ -910,6 +978,10 @@ async function assertAfterRun1(
       payBGroceries.category === catJ.GroceriesJoint,
       "Joint:PayB B groceries category should be GroceriesJoint"
     );
+    assert(
+      payBGroceries.payee_name === "King Soopers",
+      `Joint:PayB B groceries payee should be "King Soopers" (cross-budget resolved), got "${payBGroceries.payee_name}"`
+    );
 
     const payBPersonalB = getOneByMarker(
       jointPayB,
@@ -933,6 +1005,7 @@ async function assertAfterRun1(
           TX_START,
           TX_END
         )) as TxLike[];
+        await enrichPayeeNames(txs);
         snapshots.set(
           `${alias}:${ref.account}`,
           normalizeAccountSnapshot(txs)
