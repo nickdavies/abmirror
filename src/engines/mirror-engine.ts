@@ -19,6 +19,7 @@ export async function buildMirrorOpts(
     globalTxIndex?: EngineOpts["globalTxIndex"];
     rootTxIndex?: EngineOpts["rootTxIndex"];
     maxChangesPerStep?: number;
+    destOwnerMap?: EngineOpts["destOwnerMap"];
   },
   manager: BudgetManager
 ): Promise<EngineOpts> {
@@ -51,6 +52,7 @@ export async function buildMirrorOpts(
     globalTxIndex: opts.globalTxIndex,
     rootTxIndex: opts.rootTxIndex,
     maxChangesPerStep: opts.maxChangesPerStep,
+    destOwnerMap: opts.destOwnerMap,
   };
 }
 
@@ -84,14 +86,18 @@ export function createMirrorEngine(step: MirrorStep): SyncEngine {
           // Within-round: skip if canonical source is the dest budget
           if (parsed.budgetId === opts.destBudgetId) continue;
 
-          // Cross-round: skip if dest already has a copy of this canonical tx.
-          // Only applies when this step is NOT the canonical owner (parsed.budgetId !==
-          // sourceBudgetId). Owner steps must keep their txs in desired to prevent
-          // the existing copy (indexed by sourceBudgetId) from being spuriously deleted.
+          // Skip if dest already has this canonical entry AND another step "owns"
+          // entries with this canonical budgetId in the dest. Owner steps have
+          // sourceBudgetId matching parsed.budgetId and run earlier in the pipeline,
+          // so they hold the authoritative value. Without this check, a non-owner
+          // step reading stale data could overwrite the owner's fresh update.
           if (opts.globalTxIndex && parsed.budgetId !== opts.sourceBudgetId) {
             const canonicalKey = `${parsed.budgetId}:${parsed.txId}`;
             const destKey = `${opts.destBudgetId}:${destAccountId}`;
-            if (opts.globalTxIndex.get(canonicalKey)?.has(destKey)) continue;
+            if (opts.globalTxIndex.get(canonicalKey)?.has(destKey)) {
+              const destOwners = opts.destOwnerMap?.get(destAccountId);
+              if (destOwners?.has(parsed.budgetId)) continue;
+            }
           }
         }
 

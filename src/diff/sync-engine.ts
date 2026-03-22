@@ -55,6 +55,12 @@ export interface EngineOpts {
   updateFields?: boolean;
   /** Max changes before aborting. 0 or undefined = unlimited. */
   maxChangesPerStep?: number;
+  /**
+   * Map from dest account ID to the set of source budget UUIDs that have
+   * "owner" steps writing to that account. Used by the mirror engine to
+   * defer to owner steps when the dest already has a canonical entry.
+   */
+  destOwnerMap?: Map<string, Set<string>>;
 }
 
 export interface ProposeResult {

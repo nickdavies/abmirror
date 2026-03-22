@@ -69,6 +69,18 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
       manager
     );
 
+    // Build destOwnerMap: for each dest account, which source budget UUIDs have
+    // a mirror step writing to it. Used to avoid non-owner steps overwriting
+    // fresh data placed by owner steps earlier in the pipeline.
+    const destOwnerMap = new Map<string, Set<string>>();
+    for (const rs of result.resolvedSteps) {
+      if (rs.type === "mirror") {
+        const srcBudgetId = manager.getInfo(rs.srcAlias).budgetId;
+        if (!destOwnerMap.has(rs.dstAccountId)) destOwnerMap.set(rs.dstAccountId, new Set());
+        destOwnerMap.get(rs.dstAccountId)!.add(srcBudgetId);
+      }
+    }
+
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i]!;
       const displayIndex = stepIndex ?? i;
@@ -103,6 +115,7 @@ export async function runPipeline(opts: RunOptions): Promise<void> {
             globalTxIndex,
             rootTxIndex,
             maxChangesPerStep,
+            destOwnerMap,
           },
           manager
         );

@@ -29,6 +29,7 @@ import { validatePipelineGraph, type ResolvedStep } from "../graph/validator";
 export interface PreflightResult {
   ok: boolean;
   errors: string[];
+  resolvedSteps: ResolvedStep[];
 }
 
 export async function runPreflight(
@@ -72,7 +73,7 @@ export async function runPreflight(
   }
 
   if (errors.length > 0) {
-    return { ok: false, errors };
+    return { ok: false, errors, resolvedSteps: [] };
   }
 
   // --- Step 2: Download all referenced budgets ---
@@ -88,7 +89,7 @@ export async function runPreflight(
   }
 
   if (errors.length > 0) {
-    return { ok: false, errors };
+    return { ok: false, errors, resolvedSteps: [] };
   }
 
   // --- Step 2b: Check for duplicate account names (fail fast with actionable dump) ---
@@ -97,7 +98,7 @@ export async function runPreflight(
     const dup = checkDuplicateNames(accounts, alias);
     if (dup) {
       errors.push(formatDuplicateErrorForUser(dup));
-      return { ok: false, errors };
+      return { ok: false, errors, resolvedSteps: [] };
     }
   }
 
@@ -130,7 +131,7 @@ export async function runPreflight(
     }
   }
 
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, resolvedSteps };
 }
 
 async function getAccountsForBudget(

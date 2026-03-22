@@ -53,7 +53,11 @@ export async function buildGlobalTxIndex(
         account.id,
         startDate,
         endDate
-      )) as Array<{ id: string; imported_id?: string | null }>;
+      )) as Array<{
+        id: string;
+        imported_id?: string | null;
+        subtransactions?: Array<{ id: string; imported_id?: string | null }>;
+      }>;
 
       for (const tx of txs) {
         if (isABMirrorId(tx.imported_id)) {
@@ -65,6 +69,13 @@ export async function buildGlobalTxIndex(
         } else {
           if (!rootTxIndex.has(budgetInfo.budgetId)) rootTxIndex.set(budgetInfo.budgetId, new Set());
           rootTxIndex.get(budgetInfo.budgetId)!.add(tx.id);
+          // Also index subtransaction IDs so split copies that reference
+          // a child tx ID are correctly recognized as still having a live root.
+          if (tx.subtransactions) {
+            for (const sub of tx.subtransactions) {
+              rootTxIndex.get(budgetInfo.budgetId)!.add(sub.id);
+            }
+          }
         }
       }
     }

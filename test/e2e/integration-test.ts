@@ -1,34 +1,29 @@
 import * as actual from "@actual-app/api";
-import { execSync, spawnSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { stringify } from "yaml";
 
-type BudgetAlias = "alpha" | "beta" | "gamma" | "delta";
-type AccountName = "Checking" | "Recv" | "DeleteDest" | "PayAlpha" | "PayBeta" | "Dup1" | "Dup2";
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-type BudgetFixture = {
-  name: BudgetAlias;
-  syncId: string;
-  encrypted: boolean;
-  accountIds: Partial<Record<AccountName, string>>;
-};
-
-type Fixture = {
-  rootDir: string;
-  configPath: string;
-  assertDataDir: string;
-  binaryDataDir: string;
-  gammaPassword: string;
-  serverPassword: string;
-  budgets: Record<BudgetAlias, BudgetFixture>;
-};
+type BudgetAlias = "A" | "B" | "Joint";
+type AccountName =
+  | "Checking"
+  | "Joint"
+  | "Recv"
+  | "Savings"
+  | "AIndv"
+  | "BIndv"
+  | "JointExpenses"
+  | "PayA"
+  | "PayB";
 
 type TxLike = {
   id: string;
   date: string;
   amount: number;
+  payee?: string | null;
   payee_name?: string | null;
   notes?: string | null;
   category?: string | null;
@@ -37,13 +32,9 @@ type TxLike = {
   tombstone?: boolean;
   is_child?: boolean;
   is_parent?: boolean;
-  subtransactions?: Array<{
-    id: string;
-    amount: number;
-    notes?: string | null;
-    date: string;
-    imported_id?: string | null;
-  }>;
+  parent_id?: string | null;
+  account?: string;
+  subtransactions?: TxLike[];
 };
 
 type SnapshotTx = {
@@ -65,33 +56,63 @@ type SnapshotTx = {
   }>;
 };
 
+type BudgetFixture = {
+  syncId: string;
+  accountIds: Partial<Record<AccountName, string>>;
+  categoryIds: Record<string, string>;
+};
+
+type Fixture = {
+  rootDir: string;
+  configPath: string;
+  assertDataDir: string;
+  binaryDataDir: string;
+  budgets: Record<BudgetAlias, BudgetFixture>;
+};
+
+type AccountRef = { alias: BudgetAlias; account: AccountName };
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const SERVER_URL = "http://localhost:5007";
 const SERVER_PASSWORD = "test";
-const GAMMA_KEY = "gamma-test-key";
 const TX_START = "2000-01-01";
 const TX_END = "2100-01-01";
-const EXTERNAL_IMPORTED_ID = "ext-bank-seed-001";
 const PRESERVED_NOTES = "IT_preserved_user_notes";
 
 const MARKERS = {
-  alphaGroceriesParent: "IT_alpha_groceries_parent",
-  alphaGroceriesSub1: "IT_alpha_groceries_sub1",
-  alphaGroceriesSub2: "IT_alpha_groceries_sub2",
-  alphaTaggedFlat: "IT_alpha_tagged_flat",
-  alphaMissingSync: "IT_alpha_missing_sync",
-  alphaMultiAction: "IT_alpha_multi_action",
-  alphaCoffee: "IT_alpha_coffee",
-  alphaRent: "IT_alpha_rent",
-  alphaExternalImported: "IT_alpha_external_imported",
-  betaDinner: "IT_beta_dinner",
-  betaLunch: "IT_beta_lunch",
-  betaDeleteDestManual: "IT_beta_delete_dest_manual",
+  aRum: "IT_a_rum",
+  aGroceriesParent: "IT_a_groceries_parent",
+  aGroceriesSub1: "IT_a_groceries_sub1",
+  aGroceriesSub2: "IT_a_groceries_sub2",
+  aPersonal: "IT_a_personal",
+  bGroceries: "IT_b_groceries",
+  bPersonal: "IT_b_personal",
+  jointGames: "IT_joint_games",
+  jointPersonalB: "IT_joint_personal_b",
 } as const;
 
+const ALL_ACCOUNTS: AccountRef[] = [
+  { alias: "A", account: "Checking" },
+  { alias: "A", account: "Recv" },
+  { alias: "A", account: "Joint" },
+  { alias: "A", account: "Savings" },
+  { alias: "B", account: "Checking" },
+  { alias: "B", account: "Recv" },
+  { alias: "B", account: "Joint" },
+  { alias: "B", account: "Savings" },
+  { alias: "Joint", account: "AIndv" },
+  { alias: "Joint", account: "BIndv" },
+  { alias: "Joint", account: "Checking" },
+  { alias: "Joint", account: "JointExpenses" },
+  { alias: "Joint", account: "PayA" },
+  { alias: "Joint", account: "PayB" },
+];
+
+// ─── Assertion helpers ────────────────────────────────────────────────────────
+
 function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) {
-    throw new Error(message);
-  }
+  if (!condition) throw new Error(message);
 }
 
 function rootDir(): string {
@@ -100,12 +121,6 @@ function rootDir(): string {
 
 function makeTempDir(prefix: string): string {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
-}
-
-function isoDate(offsetDays = 0): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
 }
 
 function visibleTxs(txs: TxLike[]): TxLike[] {
@@ -118,15 +133,9 @@ function txHasMarker(tx: TxLike, marker: string): boolean {
 
 function getOneByMarker(txs: TxLike[], marker: string, context: string): TxLike {
   const matches = visibleTxs(txs).filter((tx) => txHasMarker(tx, marker));
-  assert(matches.length === 1, `${context}: expected exactly one marker ${marker}, got ${matches.length}`);
-  return matches[0];
-}
-
-function getByImportedId(txs: TxLike[], importedId: string, context: string): TxLike {
-  const matches = visibleTxs(txs).filter((tx) => tx.imported_id === importedId);
   assert(
     matches.length === 1,
-    `${context}: expected exactly one tx imported_id=${importedId}, got ${matches.length}`
+    `${context}: expected exactly one match for marker ${marker}, got ${matches.length}`
   );
   return matches[0];
 }
@@ -160,16 +169,6 @@ function normalizeAccountSnapshot(txs: TxLike[]): SnapshotTx[] {
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
-function assertSnapshotsEqual(actualSnapshot: SnapshotTx[], expected: SnapshotTx[], context: string): void {
-  const actualJson = JSON.stringify(actualSnapshot);
-  const expectedJson = JSON.stringify(expected);
-  assert(
-    actualJson === expectedJson,
-    `${context}: snapshot mismatch\nexpected=${expectedJson}\nactual=${actualJson}`
-  );
-}
-
-/** Content-only for idempotency (split delete/recreate changes ids). */
 function toContentSnapshot(
   txs: SnapshotTx[]
 ): Array<Omit<SnapshotTx, "id"> & { subs: Array<Omit<SnapshotTx["subs"][0], "id">> }> {
@@ -182,11 +181,17 @@ function toContentSnapshot(
       };
     })
     .sort((a, b) =>
-      `${a.amount}:${a.date}:${a.notes ?? ""}`.localeCompare(`${b.amount}:${b.date}:${b.notes ?? ""}`)
+      `${a.amount}:${a.date}:${a.notes ?? ""}`.localeCompare(
+        `${b.amount}:${b.date}:${b.notes ?? ""}`
+      )
     );
 }
 
-function assertContentSnapshotsEqual(actual: SnapshotTx[], expected: SnapshotTx[], context: string): void {
+function assertContentSnapshotsEqual(
+  actual: SnapshotTx[],
+  expected: SnapshotTx[],
+  context: string
+): void {
   const actualContent = JSON.stringify(toContentSnapshot(actual));
   const expectedContent = JSON.stringify(toContentSnapshot(expected));
   assert(
@@ -195,31 +200,10 @@ function assertContentSnapshotsEqual(actual: SnapshotTx[], expected: SnapshotTx[
   );
 }
 
-/** Hub accounts (gamma PayAlpha/PayBeta) may have duplicates from multi-hop flows; compare unique content. */
-function assertContentSetEqual(actual: SnapshotTx[], expected: SnapshotTx[], context: string): void {
-  const contentKey = (t: SnapshotTx) =>
-    `${t.amount}:${t.date}:${t.notes ?? ""}:${t.imported_id ?? ""}`;
-  const actualSet = new Set(toContentSnapshot(actual).map((t) => contentKey(t)));
-  const expectedSet = new Set(toContentSnapshot(expected).map((t) => contentKey(t)));
-  const missing = [...expectedSet].filter((k) => !actualSet.has(k));
-  const extra = [...actualSet].filter((k) => !expectedSet.has(k));
-  assert(
-    missing.length === 0 && extra.length === 0,
-    `${context}: content set mismatch\nmissing=${JSON.stringify(missing)}\nextra=${JSON.stringify(extra)}`
-  );
-}
-
-function expectedImportedId(sourceBudgetId: string, sourceTxId: string): string {
-  return `ABMirror:${sourceBudgetId}:${sourceTxId}`;
-}
+// ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function withApi<T>(dataDir: string, fn: () => Promise<T>): Promise<T> {
-  const initConfig: { dataDir: string; serverURL: string; password?: string } = {
-    dataDir,
-    serverURL: SERVER_URL,
-  };
-  initConfig.password = SERVER_PASSWORD;
-  await actual.init(initConfig);
+  await actual.init({ dataDir, serverURL: SERVER_URL, password: SERVER_PASSWORD });
   try {
     return await fn();
   } finally {
@@ -234,786 +218,885 @@ async function getSyncIdByBudgetName(name: string): Promise<string> {
   return found.groupId;
 }
 
-async function getLocalBudgetIdBySyncId(syncId: string): Promise<string> {
-  const budgets = await actual.getBudgets();
-  const found = budgets.find((b) => b.groupId === syncId && Boolean(b.id));
-  assert(found?.id, `Could not resolve local budget id for syncId "${syncId}"`);
-  return found.id;
+async function openBudget(fixture: Fixture, alias: BudgetAlias): Promise<void> {
+  await actual.downloadBudget(fixture.budgets[alias].syncId);
 }
 
-async function openBudget(fixture: Fixture, alias: BudgetAlias): Promise<BudgetFixture> {
-  const budget = fixture.budgets[alias];
-  assert(budget, `Unknown budget alias "${alias}"`);
-  const password = budget.encrypted ? fixture.gammaPassword : undefined;
-  await actual.downloadBudget(budget.syncId, { password });
-  return budget;
-}
-
-async function getAccountTransactions(
+async function getAccountTxs(
   fixture: Fixture,
   alias: BudgetAlias,
   accountName: AccountName
 ): Promise<TxLike[]> {
-  const budget = await openBudget(fixture, alias);
-  const accountId = budget.accountIds[accountName];
+  await openBudget(fixture, alias);
+  const accountId = fixture.budgets[alias].accountIds[accountName];
   assert(accountId, `Missing account "${accountName}" for budget "${alias}"`);
-  const txs = await actual.getTransactions(accountId, TX_START, TX_END);
-  return txs as TxLike[];
+  return (await actual.getTransactions(accountId, TX_START, TX_END)) as TxLike[];
 }
 
-function runMirrorBinary(fixture: Fixture, debugSync = false): void {
-  if (debugSync) {
-    const r = spawnSync(
-      "node",
-      ["dist/cli.js", "run", "--config", fixture.configPath, "--debug-sync"],
-      {
-        cwd: fixture.rootDir,
-        encoding: "utf-8",
-        stdio: "pipe",
-        env: {
-          ...process.env,
-          AB_MIRROR_KEY_GAMMA: fixture.gammaPassword,
-        },
+/** Capture normalized snapshots for all accounts, grouped by budget to minimize opens. */
+async function captureAllSnapshots(
+  fixture: Fixture
+): Promise<Map<string, SnapshotTx[]>> {
+  return withApi(fixture.assertDataDir, async () => {
+    const map = new Map<string, SnapshotTx[]>();
+    for (const alias of ["A", "B", "Joint"] as BudgetAlias[]) {
+      await openBudget(fixture, alias);
+      for (const ref of ALL_ACCOUNTS.filter((a) => a.alias === alias)) {
+        const accountId = fixture.budgets[alias].accountIds[ref.account];
+        assert(accountId, `Missing account "${ref.account}" for budget "${alias}"`);
+        const txs = (await actual.getTransactions(
+          accountId,
+          TX_START,
+          TX_END
+        )) as TxLike[];
+        map.set(`${alias}:${ref.account}`, normalizeAccountSnapshot(txs));
       }
-    );
-    const err = (r.stderr ?? "").split("\n").filter((l) => l.includes("[sync #") || l.includes("[download #") || l.includes("[debug] pipeline"));
-    if (err.length > 0) console.error("Pipeline sync/download trace:\n" + err.join("\n"));
-    if (r.status !== 0) {
-      throw new Error(`Pipeline failed: ${r.stderr ?? r.stdout ?? "unknown"}`);
     }
-    process.stdout.write(r.stdout ?? "");
-    return;
-  }
+    return map;
+  });
+}
+
+function runPipeline(fixture: Fixture): void {
   execSync(`node dist/cli.js run --config "${fixture.configPath}"`, {
     cwd: fixture.rootDir,
     stdio: "inherit",
-    env: {
-      ...process.env,
-      AB_MIRROR_KEY_GAMMA: fixture.gammaPassword,
-    },
+    env: { ...process.env },
   });
 }
 
-function runValidate(
-  configPath: string,
-  fixture: Fixture,
-  debugSync = false
-): { exitCode: number; stderr: string; stdout: string } {
-  const args = ["dist/cli.js", "validate", "--config", configPath];
-  if (debugSync) args.push("--debug-sync");
-  const result = spawnSync("node", args, {
-    cwd: fixture.rootDir,
-    encoding: "utf-8",
-    env: {
-      ...process.env,
-      AB_MIRROR_KEY_GAMMA: fixture.gammaPassword,
-      AB_MIRROR_SERVER_PASSWORD: fixture.serverPassword,
-    },
-  });
-  return {
-    exitCode: result.status ?? (result.signal ? 1 : 0),
-    stderr: result.stderr ?? "",
-    stdout: result.stdout ?? "",
-  };
+function assertCount(txs: TxLike[], expected: number, context: string): void {
+  const count = visibleTxs(txs).length;
+  assert(count === expected, `${context}: expected ${expected} visible txs, got ${count}`);
 }
+
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 async function bootstrap(): Promise<Fixture> {
   const repoRoot = rootDir();
   const assertDataDir = makeTempDir("abm-it-assert-");
   const binaryDataDir = makeTempDir("abm-it-binary-");
   const bootstrapDataDir = makeTempDir("abm-it-bootstrap-");
-  const configPath = path.join(repoRoot, "test/integration/.tmp-config.yaml");
+  const configPath = path.join(repoRoot, "test/e2e/.tmp-config.yaml");
   mkdirSync(path.dirname(configPath), { recursive: true });
 
   const budgets: Record<BudgetAlias, BudgetFixture> = {
-    alpha: { name: "alpha", syncId: "", encrypted: false, accountIds: {} },
-    beta: { name: "beta", syncId: "", encrypted: false, accountIds: {} },
-    gamma: { name: "gamma", syncId: "", encrypted: true, accountIds: {} },
-    delta: { name: "delta", syncId: "", encrypted: false, accountIds: {} },
+    A: { syncId: "", accountIds: {}, categoryIds: {} },
+    B: { syncId: "", accountIds: {}, categoryIds: {} },
+    Joint: { syncId: "", accountIds: {}, categoryIds: {} },
   };
 
   await withApi(bootstrapDataDir, async () => {
-    const date = isoDate(0);
+    // ─── Budget A ──────────────────────────────────────────────────────
+    await actual.runImport("A", async () => {
+      const checking = await actual.createAccount({ name: "Checking" }, 0);
+      const joint = await actual.createAccount({ name: "Joint" }, 0);
+      const recv = await actual.createAccount({ name: "Recv" }, 0);
+      const savings = await actual.createAccount({ name: "Savings" }, 0);
+      budgets.A.accountIds = {
+        Checking: checking,
+        Joint: joint,
+        Recv: recv,
+        Savings: savings,
+      };
 
-    await actual.runImport("alpha", async () => {
-      const checking = await actual.createAccount({ name: "Checking", offbudget: false }, 0);
-      const recv = await actual.createAccount({ name: "Recv", offbudget: false }, 0);
-      budgets.alpha.accountIds.Checking = checking;
-      budgets.alpha.accountIds.Recv = recv;
+      const groupId = await actual.createCategoryGroup({ name: "Expenses" });
+      const rum = await actual.createCategory({ name: "Rum", group_id: groupId });
+      const groceries = await actual.createCategory({
+        name: "Groceries",
+        group_id: groupId,
+      });
+      budgets.A.categoryIds = { Rum: rum, Groceries: groceries };
 
       await actual.addTransactions(checking, [
         {
-          date,
-          amount: -3333,
-          payee_name: "Groceries",
-          notes: MARKERS.alphaGroceriesParent,
+          date: "2025-01-15",
+          amount: -16000,
+          payee_name: "Total Bev",
+          notes: `#joint #50/50 Rum ${MARKERS.aRum}`,
+          category: rum,
+        },
+        {
+          date: "2025-01-20",
+          amount: -8000,
+          notes: `part joint part 100% partner ${MARKERS.aGroceriesParent}`,
           subtransactions: [
-            { amount: -1111, notes: MARKERS.alphaGroceriesSub1 },
-            { amount: -2222, notes: MARKERS.alphaGroceriesSub2 },
+            {
+              amount: -6000,
+              notes: `#joint #50/50 shared part of groceries ${MARKERS.aGroceriesSub1}`,
+              category: groceries,
+            },
+            {
+              amount: -2000,
+              notes: `#joint #0/100 spent $20 on redbull for partner ${MARKERS.aGroceriesSub2}`,
+            },
           ],
         },
         {
-          date,
-          amount: -1200,
-          payee_name: "Tagged flat",
-          notes: `#test #Sync #50/50 ${MARKERS.alphaTaggedFlat}`,
-        },
-        {
-          date,
-          amount: -1300,
-          payee_name: "Missing sync required tag",
-          notes: `#test #50/50 ${MARKERS.alphaMissingSync}`,
-        },
-        {
-          date,
-          amount: -7000,
-          payee_name: "Multi action tags",
-          notes: `#TeSt #sync #0/100 #50/50 ${MARKERS.alphaMultiAction}`,
-        },
-        {
-          date,
-          amount: -3303,
-          payee_name: "Coffee",
-          notes: MARKERS.alphaCoffee,
-        },
-        {
-          date,
-          amount: -10100,
-          payee_name: "Rent",
-          notes: `#Test #SYNC #0/100 ${MARKERS.alphaRent}`,
-        },
-        {
-          date,
-          amount: -1500,
-          payee_name: "Externally imported",
-          notes: `#test #sync #50/50 ${MARKERS.alphaExternalImported}`,
-          imported_id: EXTERNAL_IMPORTED_ID,
+          date: "2025-01-20",
+          amount: -4000,
+          notes: `personal ${MARKERS.aPersonal}`,
         },
       ]);
     });
-    budgets.alpha.syncId = await getSyncIdByBudgetName("alpha");
+    budgets.A.syncId = await getSyncIdByBudgetName("A");
 
-    await actual.runImport("beta", async () => {
-      const checking = await actual.createAccount({ name: "Checking", offbudget: false }, 0);
-      const recv = await actual.createAccount({ name: "Recv", offbudget: false }, 0);
-      const deleteDest = await actual.createAccount({ name: "DeleteDest", offbudget: false }, 0);
-      budgets.beta.accountIds.Checking = checking;
-      budgets.beta.accountIds.Recv = recv;
-      budgets.beta.accountIds.DeleteDest = deleteDest;
+    // ─── Budget B ──────────────────────────────────────────────────────
+    await actual.runImport("B", async () => {
+      const checking = await actual.createAccount({ name: "Checking" }, 0);
+      const joint = await actual.createAccount({ name: "Joint" }, 0);
+      const recv = await actual.createAccount({ name: "Recv" }, 0);
+      const savings = await actual.createAccount({ name: "Savings" }, 0);
+      budgets.B.accountIds = {
+        Checking: checking,
+        Joint: joint,
+        Recv: recv,
+        Savings: savings,
+      };
+
+      const groupId = await actual.createCategoryGroup({ name: "Expenses" });
+      const groceries = await actual.createCategory({
+        name: "Groceries",
+        group_id: groupId,
+      });
+      budgets.B.categoryIds = { Groceries: groceries };
 
       await actual.addTransactions(checking, [
         {
-          date,
-          amount: -4100,
-          payee_name: "Dinner",
-          notes: `#test #sync #50/50 ${MARKERS.betaDinner}`,
+          date: "2025-01-18",
+          amount: -10000,
+          payee_name: "King Soopers",
+          notes: `#joint #50/50 ${MARKERS.bGroceries}`,
+          category: groceries,
         },
         {
-          date,
-          amount: -2000,
-          payee_name: "Lunch",
-          notes: `#test #sync #0/100 ${MARKERS.betaLunch}`,
-        },
-      ]);
-
-      await actual.addTransactions(deleteDest, [
-        {
-          date,
-          amount: -501,
-          payee_name: "Manual Keep",
-          notes: MARKERS.betaDeleteDestManual,
+          date: "2025-01-22",
+          amount: -3500,
+          notes: MARKERS.bPersonal,
         },
       ]);
     });
-    budgets.beta.syncId = await getSyncIdByBudgetName("beta");
+    budgets.B.syncId = await getSyncIdByBudgetName("B");
 
-    await actual.runImport("gamma", async () => {
-      const recv = await actual.createAccount({ name: "Recv", offbudget: false }, 0);
-      const payAlpha = await actual.createAccount({ name: "PayAlpha", offbudget: false }, 0);
-      const payBeta = await actual.createAccount({ name: "PayBeta", offbudget: false }, 0);
-      budgets.gamma.accountIds.Recv = recv;
-      budgets.gamma.accountIds.PayAlpha = payAlpha;
-      budgets.gamma.accountIds.PayBeta = payBeta;
+    // ─── Budget Joint ──────────────────────────────────────────────────
+    await actual.runImport("Joint", async () => {
+      const aIndv = await actual.createAccount({ name: "AIndv" }, 0);
+      const bIndv = await actual.createAccount({ name: "BIndv" }, 0);
+      const checking = await actual.createAccount({ name: "Checking" }, 0);
+      const jointExpenses = await actual.createAccount(
+        { name: "JointExpenses", offbudget: true },
+        0
+      );
+      const payA = await actual.createAccount({ name: "PayA" }, 0);
+      const payB = await actual.createAccount({ name: "PayB" }, 0);
+      budgets.Joint.accountIds = {
+        AIndv: aIndv,
+        BIndv: bIndv,
+        Checking: checking,
+        JointExpenses: jointExpenses,
+        PayA: payA,
+        PayB: payB,
+      };
+
+      const groupId = await actual.createCategoryGroup({ name: "Expenses" });
+      const games = await actual.createCategory({ name: "Games", group_id: groupId });
+      const misc = await actual.createCategory({ name: "Misc", group_id: groupId });
+      const groceriesJoint = await actual.createCategory({
+        name: "GroceriesJoint",
+        group_id: groupId,
+      });
+      budgets.Joint.categoryIds = {
+        Games: games,
+        Misc: misc,
+        GroceriesJoint: groceriesJoint,
+      };
+
+      await actual.addTransactions(checking, [
+        {
+          date: "2025-01-25",
+          amount: -30000,
+          payee_name: "Total Escape Games",
+          notes: MARKERS.jointGames,
+          category: games,
+        },
+        {
+          date: "2025-01-26",
+          amount: -4000,
+          payee_name: "United Airlines",
+          notes: `#personal_b ${MARKERS.jointPersonalB}`,
+          category: misc,
+        },
+      ]);
     });
-    budgets.gamma.syncId = await getSyncIdByBudgetName("gamma");
+    budgets.Joint.syncId = await getSyncIdByBudgetName("Joint");
 
-    await actual.downloadBudget(budgets.gamma.syncId);
-    await actual.internal.send("key-make", { password: GAMMA_KEY });
+    // ─── Fix subtransaction payees on Budget A ─────────────────────────
+    await actual.downloadBudget(budgets.A.syncId);
+    const aTxs = (await actual.getTransactions(
+      budgets.A.accountIds.Checking!,
+      TX_START,
+      TX_END
+    )) as TxLike[];
+
+    const parent = aTxs.find((t) => t.notes?.includes(MARKERS.aGroceriesParent));
+    assert(parent, `Could not find parent by marker ${MARKERS.aGroceriesParent}`);
+    assert(parent.subtransactions?.length, "Parent has no subtransactions");
+    const sub1 = parent.subtransactions!.find((t) =>
+      t.notes?.includes(MARKERS.aGroceriesSub1)
+    );
+    const sub2 = parent.subtransactions!.find((t) =>
+      t.notes?.includes(MARKERS.aGroceriesSub2)
+    );
+    assert(sub1, `Could not find sub1 by marker ${MARKERS.aGroceriesSub1}`);
+    assert(sub2, `Could not find sub2 by marker ${MARKERS.aGroceriesSub2}`);
+
+    // Fix subtransaction payees and amounts. addTransactions stores sub amounts
+    // but they may be lost after sync; updateTransaction ensures they persist.
+    const costcoUpperId = await actual.createPayee({ name: "Costco" });
+    const costcoLowerId = await actual.createPayee({ name: "costco" });
+    await actual.updateTransaction(sub1.id, {
+      payee: costcoUpperId,
+      amount: -6000,
+      category: budgets.A.categoryIds.Groceries,
+    } as any);
+    await actual.updateTransaction(sub2.id, {
+      payee: costcoLowerId,
+      amount: -2000,
+    } as any);
     await actual.sync();
-    budgets.gamma.syncId = await getSyncIdByBudgetName("gamma");
-
-    await actual.runImport("delta", async () => {
-      const dup1 = await actual.createAccount({ name: "Dup", offbudget: false }, 0);
-      const dup2 = await actual.createAccount({ name: "Dup", offbudget: true }, 0);
-      budgets.delta.accountIds.Dup1 = dup1;
-      budgets.delta.accountIds.Dup2 = dup2;
-    });
-    budgets.delta.syncId = await getSyncIdByBudgetName("delta");
   });
 
-  const fixture: Fixture = {
-    rootDir: repoRoot,
-    configPath,
-    assertDataDir,
-    binaryDataDir,
-    gammaPassword: GAMMA_KEY,
-    serverPassword: SERVER_PASSWORD,
-    budgets,
-  };
+  // ─── Write pipeline config ──────────────────────────────────────────────────
+
+  const catA = budgets.A.categoryIds;
+  const catB = budgets.B.categoryIds;
+  const catJ = budgets.Joint.categoryIds;
 
   const config = {
     server: { url: SERVER_URL, password: SERVER_PASSWORD },
-    dataDir: fixture.binaryDataDir,
+    dataDir: binaryDataDir,
     budgets: {
-      alpha: { syncId: budgets.alpha.syncId, encrypted: false },
-      beta: { syncId: budgets.beta.syncId, encrypted: false },
-      gamma: {
-        syncId: budgets.gamma.syncId,
-        encrypted: true,
-        key: "${AB_MIRROR_KEY_GAMMA}",
-      },
+      A: { syncId: budgets.A.syncId, encrypted: false },
+      B: { syncId: budgets.B.syncId, encrypted: false },
+      Joint: { syncId: budgets.Joint.syncId, encrypted: false },
     },
     lookbackDays: 3650,
+    maxChangesPerStep: 0,
     pipeline: [
+      // Step 1: Split A:Checking (#joint) → A:Recv
       {
         type: "split",
-        budget: "alpha",
-        source: {
-          accounts: [budgets.alpha.accountIds.Checking],
-          requiredTags: ["#test", "#sync"],
-        },
+        budget: "A",
+        source: { accounts: ["Checking"], requiredTags: ["#joint"] },
         tags: {
-          "#50/50": {
-            multiplier: -0.5,
-            destination_account: budgets.alpha.accountIds.Recv,
-          },
-          "#0/100": {
-            multiplier: -1.0,
-            destination_account: budgets.alpha.accountIds.Recv,
-          },
+          "#50/50": { multiplier: -0.5, destination_account: "Recv" },
+          "#0/100": { multiplier: -1, destination_account: "Recv" },
         },
+        delete: true,
       },
+      // Step 2: Split B:Checking (#joint) → B:Recv
       {
         type: "split",
-        budget: "beta",
-        source: {
-          accounts: [budgets.beta.accountIds.Checking],
-          requiredTags: ["#test", "#sync"],
-        },
+        budget: "B",
+        source: { accounts: ["Checking"], requiredTags: ["#joint"] },
         tags: {
-          "#50/50": {
-            multiplier: -0.5,
-            destination_account: budgets.beta.accountIds.Recv,
-          },
-          "#0/100": {
-            multiplier: -1.0,
-            destination_account: budgets.beta.accountIds.Recv,
-          },
+          "#50/50": { multiplier: -0.5, destination_account: "Recv" },
         },
+        delete: true,
       },
-      // alpha → beta via gamma (3-hop, nick/joint/britta style)
+      // Step 3: Split Joint:Checking → JointExpenses (default: 50%)
       {
-        type: "mirror",
-        source: { budget: "alpha", accounts: [budgets.alpha.accountIds.Recv] },
-        destination: { budget: "gamma", account: budgets.gamma.accountIds.PayAlpha },
+        type: "split",
+        budget: "Joint",
+        source: { accounts: ["Checking"] },
+        tags: {},
+        default: { multiplier: 0.5, destination_account: "JointExpenses" },
+        delete: true,
       },
+      // Step 4: Split Joint:Checking → PayA/PayB (#personal charge)
       {
-        type: "mirror",
-        source: { budget: "gamma", accounts: [budgets.gamma.accountIds.PayAlpha] },
-        destination: { budget: "gamma", account: budgets.gamma.accountIds.PayBeta },
-        invert: true,
-      },
-      {
-        type: "mirror",
-        source: { budget: "gamma", accounts: [budgets.gamma.accountIds.PayBeta] },
-        destination: { budget: "beta", account: budgets.beta.accountIds.Recv },
-        invert: true,
-      },
-      // beta → alpha via gamma (3-hop reverse)
-      {
-        type: "mirror",
-        source: { budget: "beta", accounts: [budgets.beta.accountIds.Recv] },
-        destination: { budget: "gamma", account: budgets.gamma.accountIds.PayBeta },
-        invert: true,
-      },
-      {
-        type: "mirror",
-        source: { budget: "gamma", accounts: [budgets.gamma.accountIds.PayBeta] },
-        destination: { budget: "gamma", account: budgets.gamma.accountIds.PayAlpha },
-        invert: true,
-      },
-      {
-        type: "mirror",
-        source: { budget: "gamma", accounts: [budgets.gamma.accountIds.PayAlpha] },
-        destination: { budget: "alpha", account: budgets.alpha.accountIds.Recv },
-      },
-      // direct alpha → gamma (simpler flow)
-      {
-        type: "mirror",
-        source: { budget: "alpha", accounts: [budgets.alpha.accountIds.Recv] },
-        destination: { budget: "gamma", account: budgets.gamma.accountIds.Recv },
-      },
-      {
-        type: "mirror",
-        source: { budget: "alpha", accounts: [budgets.alpha.accountIds.Checking] },
-        destination: {
-          budget: "beta",
-          account: budgets.beta.accountIds.DeleteDest,
+        type: "split",
+        budget: "Joint",
+        source: { accounts: ["Checking"] },
+        tags: {
+          "#personal_a": { multiplier: 0.5, destination_account: "PayA" },
+          "#personal_b": { multiplier: 0.5, destination_account: "PayB" },
         },
+        delete: true,
+      },
+      // Step 5: Split Joint:Checking → PayB/PayA (#personal offset)
+      {
+        type: "split",
+        budget: "Joint",
+        source: { accounts: ["Checking"] },
+        tags: {
+          "#personal_a": { multiplier: -0.5, destination_account: "PayB" },
+          "#personal_b": { multiplier: -0.5, destination_account: "PayA" },
+        },
+        delete: true,
+      },
+      // Step 6: Mirror A:Checking (#joint,#50/50) → Joint:AIndv
+      {
+        type: "mirror",
+        source: {
+          budget: "A",
+          accounts: ["Checking"],
+          requiredTags: ["#joint", "#50/50"],
+        },
+        destination: { budget: "Joint", account: "AIndv" },
+        delete: true,
+      },
+      // Step 7: Mirror B:Checking (#joint,#50/50) → Joint:BIndv
+      {
+        type: "mirror",
+        source: {
+          budget: "B",
+          accounts: ["Checking"],
+          requiredTags: ["#joint", "#50/50"],
+        },
+        destination: { budget: "Joint", account: "BIndv" },
+        delete: true,
+      },
+      // Step 8: Mirror A:Recv → Joint:PayA
+      {
+        type: "mirror",
+        source: { budget: "A", accounts: ["Recv"] },
+        destination: { budget: "Joint", account: "PayA" },
+        categoryMapping: { [catA.Groceries]: catJ.GroceriesJoint },
+        delete: true,
+      },
+      // Step 9: Mirror B:Recv → Joint:PayB
+      {
+        type: "mirror",
+        source: { budget: "B", accounts: ["Recv"] },
+        destination: { budget: "Joint", account: "PayB" },
+        categoryMapping: { [catB.Groceries]: catJ.GroceriesJoint },
+        delete: true,
+      },
+      // Step 10: Mirror Joint:PayB → Joint:PayA (invert)
+      {
+        type: "mirror",
+        source: { budget: "Joint", accounts: ["PayB"] },
+        destination: { budget: "Joint", account: "PayA" },
+        invert: true,
+        delete: true,
+      },
+      // Step 11: Mirror Joint:PayA → Joint:PayB (invert)
+      {
+        type: "mirror",
+        source: { budget: "Joint", accounts: ["PayA"] },
+        destination: { budget: "Joint", account: "PayB" },
+        invert: true,
+        delete: true,
+      },
+      // Step 12: Mirror Joint:PayA → A:Recv
+      {
+        type: "mirror",
+        source: { budget: "Joint", accounts: ["PayA"] },
+        destination: { budget: "A", account: "Recv" },
+        categoryMapping: { [catJ.GroceriesJoint]: catA.Groceries },
+        delete: true,
+      },
+      // Step 13: Mirror Joint:PayB → B:Recv
+      {
+        type: "mirror",
+        source: { budget: "Joint", accounts: ["PayB"] },
+        destination: { budget: "B", account: "Recv" },
+        categoryMapping: { [catJ.GroceriesJoint]: catB.Groceries },
+        delete: true,
+      },
+      // Step 14: Mirror Joint:JointExpenses → A:Joint (delete: false!)
+      {
+        type: "mirror",
+        source: { budget: "Joint", accounts: ["JointExpenses"] },
+        destination: { budget: "A", account: "Joint" },
+        delete: false,
+      },
+      // Step 15: Mirror Joint:JointExpenses → B:Joint
+      {
+        type: "mirror",
+        source: { budget: "Joint", accounts: ["JointExpenses"] },
+        destination: { budget: "B", account: "Joint" },
         delete: true,
       },
     ],
   };
 
   writeFileSync(configPath, stringify(config), "utf-8");
-  return fixture;
+
+  return {
+    rootDir: repoRoot,
+    configPath,
+    assertDataDir,
+    binaryDataDir,
+    budgets,
+  };
 }
+
+// ─── Phase 1: Starting state ─────────────────────────────────────────────────
 
 async function assertStartingState(fixture: Fixture): Promise<void> {
   await withApi(fixture.assertDataDir, async () => {
-    const alphaRecv = await getAccountTransactions(fixture, "alpha", "Recv");
-    const betaRecv = await getAccountTransactions(fixture, "beta", "Recv");
-    const betaDeleteDest = await getAccountTransactions(fixture, "beta", "DeleteDest");
-    const gammaRecv = await getAccountTransactions(fixture, "gamma", "Recv");
+    // Source accounts have seed transactions
+    assertCount(
+      await getAccountTxs(fixture, "A", "Checking"),
+      3,
+      "A:Checking initial"
+    );
+    assertCount(
+      await getAccountTxs(fixture, "B", "Checking"),
+      2,
+      "B:Checking initial"
+    );
+    assertCount(
+      await getAccountTxs(fixture, "Joint", "Checking"),
+      2,
+      "Joint:Checking initial"
+    );
 
-    assert(visibleTxs(alphaRecv).length === 0, "alpha/Recv should start empty");
-    assert(visibleTxs(betaRecv).length === 0, "beta/Recv should start empty");
-    assert(visibleTxs(gammaRecv).length === 0, "gamma/Recv should start empty");
-    assert(visibleTxs(betaDeleteDest).length === 1, "beta/DeleteDest should start with one manual tx");
-    getOneByMarker(betaDeleteDest, MARKERS.betaDeleteDestManual, "initial manual tx");
+    // All destination accounts start empty
+    for (const { alias, account } of ALL_ACCOUNTS) {
+      if (account === "Checking") continue; // source accounts checked above
+      const txs = await getAccountTxs(fixture, alias, account);
+      assertCount(txs, 0, `${alias}:${account} initial`);
+    }
   });
 }
 
-async function snapshotAlphaChecking(fixture: Fixture): Promise<SnapshotTx[]> {
+// ─── Phase 2: Run 1 + assert ─────────────────────────────────────────────────
+
+async function assertAfterRun1(
+  fixture: Fixture
+): Promise<Map<string, SnapshotTx[]>> {
   return withApi(fixture.assertDataDir, async () => {
-    const txs = await getAccountTransactions(fixture, "alpha", "Checking");
-    return normalizeAccountSnapshot(txs);
+    const catA = fixture.budgets.A.categoryIds;
+    const catB = fixture.budgets.B.categoryIds;
+    const catJ = fixture.budgets.Joint.categoryIds;
+
+    // ── A:Checking — unchanged ──────────────────────────────────────
+    const aChecking = await getAccountTxs(fixture, "A", "Checking");
+    assertCount(aChecking, 3, "A:Checking after run 1");
+
+    // ── A:Recv — 3 splits + 2 mirrors from Joint:PayA ──────────────
+    const aRecv = await getAccountTxs(fixture, "A", "Recv");
+    assertCount(aRecv, 5, "A:Recv after run 1");
+
+    const aRecvRum = getOneByMarker(aRecv, MARKERS.aRum, "A:Recv rum");
+    assert(aRecvRum.amount === 8000, `A:Recv rum amount: expected 8000, got ${aRecvRum.amount}`);
+    assert(aRecvRum.category === catA.Rum, "A:Recv rum category should be Rum");
+    assert(
+      aRecvRum.imported_id?.startsWith("ABMirror:"),
+      "A:Recv rum should have ABMirror imported_id"
+    );
+
+    const aRecvSub1 = getOneByMarker(aRecv, MARKERS.aGroceriesSub1, "A:Recv sub1");
+    assert(aRecvSub1.amount === 3000, `A:Recv sub1 amount: expected 3000, got ${aRecvSub1.amount}`);
+    assert(aRecvSub1.category === catA.Groceries, "A:Recv sub1 category should be Groceries");
+
+    const aRecvSub2 = getOneByMarker(aRecv, MARKERS.aGroceriesSub2, "A:Recv sub2");
+    assert(aRecvSub2.amount === 2000, `A:Recv sub2 amount: expected 2000, got ${aRecvSub2.amount}`);
+    assert(!aRecvSub2.category, "A:Recv sub2 category should be null");
+
+    const aRecvBGroceries = getOneByMarker(aRecv, MARKERS.bGroceries, "A:Recv from B via PayA");
+    assert(
+      aRecvBGroceries.amount === -5000,
+      `A:Recv B groceries amount: expected -5000, got ${aRecvBGroceries.amount}`
+    );
+    assert(
+      aRecvBGroceries.category === catA.Groceries,
+      "A:Recv B groceries category should be Groceries (mapped from GroceriesJoint)"
+    );
+
+    const aRecvPersonalB = getOneByMarker(
+      aRecv,
+      MARKERS.jointPersonalB,
+      "A:Recv personal_b offset"
+    );
+    assert(
+      aRecvPersonalB.amount === 2000,
+      `A:Recv personal_b amount: expected 2000, got ${aRecvPersonalB.amount}`
+    );
+    assert(!aRecvPersonalB.category, "A:Recv personal_b category should be null (Misc unmapped)");
+
+    // ── A:Joint — 2 mirrors from JointExpenses ──────────────────────
+    const aJoint = await getAccountTxs(fixture, "A", "Joint");
+    assertCount(aJoint, 2, "A:Joint after run 1");
+
+    // ── A:Savings — untouched ───────────────────────────────────────
+    assertCount(await getAccountTxs(fixture, "A", "Savings"), 0, "A:Savings after run 1");
+
+    // ── B:Checking — unchanged ──────────────────────────────────────
+    const bChecking = await getAccountTxs(fixture, "B", "Checking");
+    assertCount(bChecking, 2, "B:Checking after run 1");
+
+    // ── B:Recv — 1 split + 4 mirrors from Joint:PayB ───────────────
+    const bRecv = await getAccountTxs(fixture, "B", "Recv");
+    assertCount(bRecv, 5, "B:Recv after run 1");
+
+    const bRecvGroceries = getOneByMarker(bRecv, MARKERS.bGroceries, "B:Recv groceries split");
+    assert(
+      bRecvGroceries.amount === 5000,
+      `B:Recv groceries split amount: expected 5000, got ${bRecvGroceries.amount}`
+    );
+    assert(
+      bRecvGroceries.category === catB.Groceries,
+      "B:Recv groceries split category should be Groceries"
+    );
+
+    const bRecvRum = getOneByMarker(bRecv, MARKERS.aRum, "B:Recv rum from A via PayB");
+    assert(
+      bRecvRum.amount === -8000,
+      `B:Recv rum amount: expected -8000, got ${bRecvRum.amount}`
+    );
+    assert(!bRecvRum.category, "B:Recv rum category should be null (Rum unmapped)");
+
+    const bRecvSub1 = getOneByMarker(bRecv, MARKERS.aGroceriesSub1, "B:Recv sub1 from PayB");
+    assert(
+      bRecvSub1.amount === -3000,
+      `B:Recv sub1 amount: expected -3000, got ${bRecvSub1.amount}`
+    );
+    assert(
+      bRecvSub1.category === catB.Groceries,
+      "B:Recv sub1 category should be Groceries (mapped from GroceriesJoint)"
+    );
+
+    const bRecvSub2 = getOneByMarker(bRecv, MARKERS.aGroceriesSub2, "B:Recv sub2 from PayB");
+    assert(
+      bRecvSub2.amount === -2000,
+      `B:Recv sub2 amount: expected -2000, got ${bRecvSub2.amount}`
+    );
+
+    const bRecvPersonalB = getOneByMarker(
+      bRecv,
+      MARKERS.jointPersonalB,
+      "B:Recv personal_b charge"
+    );
+    assert(
+      bRecvPersonalB.amount === -2000,
+      `B:Recv personal_b amount: expected -2000, got ${bRecvPersonalB.amount}`
+    );
+
+    // ── B:Joint — 2 mirrors from JointExpenses ──────────────────────
+    const bJoint = await getAccountTxs(fixture, "B", "Joint");
+    assertCount(bJoint, 2, "B:Joint after run 1");
+
+    // ── B:Savings — untouched ───────────────────────────────────────
+    assertCount(await getAccountTxs(fixture, "B", "Savings"), 0, "B:Savings after run 1");
+
+    // ── Joint:AIndv — 2 mirrors from A:Checking (#50/50 only) ──────
+    const jointAIndv = await getAccountTxs(fixture, "Joint", "AIndv");
+    assertCount(jointAIndv, 2, "Joint:AIndv after run 1");
+
+    const aIndvRum = getOneByMarker(jointAIndv, MARKERS.aRum, "Joint:AIndv rum");
+    assert(
+      aIndvRum.amount === -16000,
+      `Joint:AIndv rum amount: expected -16000, got ${aIndvRum.amount}`
+    );
+    assert(!aIndvRum.category, "Joint:AIndv rum category should be null (cross-budget, unmapped)");
+
+    const aIndvSub1 = getOneByMarker(jointAIndv, MARKERS.aGroceriesSub1, "Joint:AIndv sub1");
+    assert(
+      aIndvSub1.amount === -6000,
+      `Joint:AIndv sub1 amount: expected -6000, got ${aIndvSub1.amount}`
+    );
+
+    // ── Joint:BIndv — 1 mirror from B:Checking (#50/50) ────────────
+    const jointBIndv = await getAccountTxs(fixture, "Joint", "BIndv");
+    assertCount(jointBIndv, 1, "Joint:BIndv after run 1");
+
+    const bIndvGroceries = getOneByMarker(
+      jointBIndv,
+      MARKERS.bGroceries,
+      "Joint:BIndv groceries"
+    );
+    assert(
+      bIndvGroceries.amount === -10000,
+      `Joint:BIndv groceries amount: expected -10000, got ${bIndvGroceries.amount}`
+    );
+
+    // ── Joint:Checking — unchanged ──────────────────────────────────
+    assertCount(
+      await getAccountTxs(fixture, "Joint", "Checking"),
+      2,
+      "Joint:Checking after run 1"
+    );
+
+    // ── Joint:JointExpenses — 2 (50% default splits) ────────────────
+    const jointExpenses = await getAccountTxs(fixture, "Joint", "JointExpenses");
+    assertCount(jointExpenses, 2, "Joint:JointExpenses after run 1");
+
+    const jeGames = getOneByMarker(jointExpenses, MARKERS.jointGames, "JointExpenses games");
+    assert(
+      jeGames.amount === -15000,
+      `JointExpenses games amount: expected -15000, got ${jeGames.amount}`
+    );
+    assert(jeGames.category === catJ.Games, "JointExpenses games category should be Games");
+
+    const jePersonalB = getOneByMarker(
+      jointExpenses,
+      MARKERS.jointPersonalB,
+      "JointExpenses personal_b"
+    );
+    assert(
+      jePersonalB.amount === -2000,
+      `JointExpenses personal_b amount: expected -2000, got ${jePersonalB.amount}`
+    );
+    assert(jePersonalB.category === catJ.Misc, "JointExpenses personal_b category should be Misc");
+
+    // ── Joint:PayA — 5 entries ──────────────────────────────────────
+    const jointPayA = await getAccountTxs(fixture, "Joint", "PayA");
+    assertCount(jointPayA, 5, "Joint:PayA after run 1");
+
+    const payARum = getOneByMarker(jointPayA, MARKERS.aRum, "Joint:PayA rum");
+    assert(
+      payARum.amount === 8000,
+      `Joint:PayA rum amount: expected 8000, got ${payARum.amount}`
+    );
+    assert(!payARum.category, "Joint:PayA rum category should be null (Rum unmapped)");
+
+    const payASub1 = getOneByMarker(jointPayA, MARKERS.aGroceriesSub1, "Joint:PayA sub1");
+    assert(
+      payASub1.amount === 3000,
+      `Joint:PayA sub1 amount: expected 3000, got ${payASub1.amount}`
+    );
+    assert(
+      payASub1.category === catJ.GroceriesJoint,
+      "Joint:PayA sub1 category should be GroceriesJoint"
+    );
+
+    const payABGroceries = getOneByMarker(
+      jointPayA,
+      MARKERS.bGroceries,
+      "Joint:PayA B groceries (inverted from PayB)"
+    );
+    assert(
+      payABGroceries.amount === -5000,
+      `Joint:PayA B groceries amount: expected -5000, got ${payABGroceries.amount}`
+    );
+
+    const payAPersonalB = getOneByMarker(
+      jointPayA,
+      MARKERS.jointPersonalB,
+      "Joint:PayA personal_b offset"
+    );
+    assert(
+      payAPersonalB.amount === 2000,
+      `Joint:PayA personal_b amount: expected 2000, got ${payAPersonalB.amount}`
+    );
+    assert(
+      payAPersonalB.category === catJ.Misc,
+      "Joint:PayA personal_b category should be Misc"
+    );
+
+    // ── Joint:PayB — 5 entries ──────────────────────────────────────
+    const jointPayB = await getAccountTxs(fixture, "Joint", "PayB");
+    assertCount(jointPayB, 5, "Joint:PayB after run 1");
+
+    const payBRum = getOneByMarker(jointPayB, MARKERS.aRum, "Joint:PayB rum (inverted)");
+    assert(
+      payBRum.amount === -8000,
+      `Joint:PayB rum amount: expected -8000, got ${payBRum.amount}`
+    );
+
+    const payBGroceries = getOneByMarker(
+      jointPayB,
+      MARKERS.bGroceries,
+      "Joint:PayB B groceries"
+    );
+    assert(
+      payBGroceries.amount === 5000,
+      `Joint:PayB B groceries amount: expected 5000, got ${payBGroceries.amount}`
+    );
+    assert(
+      payBGroceries.category === catJ.GroceriesJoint,
+      "Joint:PayB B groceries category should be GroceriesJoint"
+    );
+
+    const payBPersonalB = getOneByMarker(
+      jointPayB,
+      MARKERS.jointPersonalB,
+      "Joint:PayB personal_b charge"
+    );
+    assert(
+      payBPersonalB.amount === -2000,
+      `Joint:PayB personal_b amount: expected -2000, got ${payBPersonalB.amount}`
+    );
+
+    // ── Capture snapshots for idempotency check ─────────────────────
+    const snapshots = new Map<string, SnapshotTx[]>();
+    for (const alias of ["A", "B", "Joint"] as BudgetAlias[]) {
+      await openBudget(fixture, alias);
+      for (const ref of ALL_ACCOUNTS.filter((a) => a.alias === alias)) {
+        const accountId = fixture.budgets[alias].accountIds[ref.account];
+        assert(accountId, `Missing account "${ref.account}" for budget "${alias}"`);
+        const txs = (await actual.getTransactions(
+          accountId,
+          TX_START,
+          TX_END
+        )) as TxLike[];
+        snapshots.set(
+          `${alias}:${ref.account}`,
+          normalizeAccountSnapshot(txs)
+        );
+      }
+    }
+    return snapshots;
   });
 }
 
-type Run1Snapshot = {
-  alphaRecv: SnapshotTx[];
-  betaRecv: SnapshotTx[];
-  gammaRecv: SnapshotTx[];
-  gammaPayAlpha: SnapshotTx[];
-  gammaPayBeta: SnapshotTx[];
-  betaDeleteDest: SnapshotTx[];
-};
+// ─── Phase 3: Idempotency ────────────────────────────────────────────────────
 
-async function assertAfterRun1(fixture: Fixture): Promise<Run1Snapshot> {
-  return withApi(fixture.assertDataDir, async () => {
-    const betaRecv = await getAccountTransactions(fixture, "beta", "Recv");
-    const alphaRecv = await getAccountTransactions(fixture, "alpha", "Recv");
-    const gammaRecv = await getAccountTransactions(fixture, "gamma", "Recv");
-    const gammaPayAlpha = await getAccountTransactions(fixture, "gamma", "PayAlpha");
-    const gammaPayBeta = await getAccountTransactions(fixture, "gamma", "PayBeta");
-    const betaDeleteDest = await getAccountTransactions(fixture, "beta", "DeleteDest");
+async function assertIdempotencyAfterRun2(
+  fixture: Fixture,
+  run1Snapshots: Map<string, SnapshotTx[]>
+): Promise<void> {
+  const run2Snapshots = await captureAllSnapshots(fixture);
 
-    const alphaTaggedFlat = getOneByMarker(alphaRecv, MARKERS.alphaTaggedFlat, "alpha/Recv tagged flat");
-    const alphaRent = getOneByMarker(alphaRecv, MARKERS.alphaRent, "alpha/Recv rent");
-    const alphaDinner = getOneByMarker(alphaRecv, MARKERS.betaDinner, "alpha/Recv from beta via gamma (dinner)");
-    const alphaLunch = getOneByMarker(alphaRecv, MARKERS.betaLunch, "alpha/Recv from beta via gamma (lunch)");
-    const alphaExternal = getOneByMarker(
-      alphaRecv,
-      MARKERS.alphaExternalImported,
-      "alpha/Recv external imported source"
-    );
-
-    assert(alphaTaggedFlat.amount === 600, "alpha/Recv tagged flat should split to +600");
-    assert(alphaRent.amount === 10100, "alpha/Recv rent should split to +10100");
-    assert(
-      alphaDinner.amount === 2050,
-      `alpha/Recv beta dinner via gamma should be +2050 (50/50 split), got ${alphaDinner.amount}`
-    );
-    assert(alphaLunch.amount === 2000, "alpha/Recv beta lunch via gamma should be +2000 (0/100 split)");
-    assert(alphaExternal.amount === 750, "alpha/Recv external imported should split to +750");
-    assert(
-      alphaTaggedFlat.imported_id?.endsWith(`:${getOneByMarker(await getAccountTransactions(fixture, "alpha", "Checking"), MARKERS.alphaTaggedFlat, "alpha/Checking tagged flat").id}`),
-      "alpha/Recv tagged flat imported_id should map to source tx id"
-    );
-
-    // beta/Recv gets TaggedFlat via 3-hop (alpha→gamma/PayAlpha→gamma/PayBeta→beta), find by marker
-    const betaTaggedFlat = getOneByMarker(betaRecv, MARKERS.alphaTaggedFlat, "beta/Recv tagged flat via gamma");
-    const gammaTaggedFlat = getOneByMarker(gammaRecv, MARKERS.alphaTaggedFlat, "gamma/Recv tagged flat (direct alpha→gamma)");
-    assert(betaTaggedFlat.amount === 600, "beta/Recv tagged flat amount should mirror alpha/Recv via 3-hop");
-    assert(gammaTaggedFlat.amount === 600, "gamma/Recv tagged flat amount should mirror alpha/Recv");
-    assert(betaTaggedFlat.date === alphaTaggedFlat.date, "beta/Recv tagged flat date should match source");
-    assert(gammaTaggedFlat.date === alphaTaggedFlat.date, "gamma/Recv tagged flat date should match source");
-
-    // nick/joint/britta: alpha 3 split + 2 from beta via gamma = 5; beta 2 split + 3 from alpha via gamma = 5
-    assert(
-      visibleTxs(alphaRecv).length === 5,
-      "alpha/Recv should have 5 tx after run 1 (3 split + 2 from beta via gamma)"
-    );
-    assert(
-      visibleTxs(betaRecv).length === 5,
-      "beta/Recv should have 5 tx after run 1 (2 split + 3 from alpha via gamma)"
-    );
-    assert(
-      visibleTxs(gammaRecv).length === 5,
-      "gamma/Recv should have 5 mirrored tx after run 1 (alpha/Recv: 3 split + 2 from beta)"
-    );
-    assert(
-      visibleTxs(gammaPayAlpha).length >= 5,
-      `gamma/PayAlpha should have at least 5 tx (3 from alpha + 2 from PayBeta), got ${visibleTxs(gammaPayAlpha).length}`
-    );
-    assert(
-      visibleTxs(gammaPayBeta).length >= 5,
-      `gamma/PayBeta should have at least 5 tx (2 from beta + 3 from PayAlpha), got ${visibleTxs(gammaPayBeta).length}`
-    );
-    assert(
-      visibleTxs(betaDeleteDest).length === 9,
-      "beta/DeleteDest should have 8 mirrored + 1 manual tx after run 1"
-    );
-
-    getOneByMarker(betaDeleteDest, MARKERS.alphaGroceriesSub1, "beta/DeleteDest subtx1");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaGroceriesSub2, "beta/DeleteDest subtx2");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaTaggedFlat, "beta/DeleteDest tagged flat");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaMissingSync, "beta/DeleteDest missing-sync");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaMultiAction, "beta/DeleteDest multi-action");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaCoffee, "beta/DeleteDest coffee");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaRent, "beta/DeleteDest rent");
-    const deleteDestExternal = getOneByMarker(
-      betaDeleteDest,
-      MARKERS.alphaExternalImported,
-      "beta/DeleteDest external imported"
-    );
-    assert(
-      deleteDestExternal.imported_id?.startsWith("ABMirror:"),
-      "mirror output should always use ABMirror imported_id even when source imported_id is non-null"
-    );
-    getOneByMarker(betaDeleteDest, MARKERS.betaDeleteDestManual, "beta/DeleteDest manual untouched");
-
-    return {
-      alphaRecv: normalizeAccountSnapshot(alphaRecv),
-      betaRecv: normalizeAccountSnapshot(betaRecv),
-      gammaRecv: normalizeAccountSnapshot(gammaRecv),
-      gammaPayAlpha: normalizeAccountSnapshot(gammaPayAlpha),
-      gammaPayBeta: normalizeAccountSnapshot(gammaPayBeta),
-      betaDeleteDest: normalizeAccountSnapshot(betaDeleteDest),
-    };
-  });
+  for (const [key, run1Snap] of run1Snapshots) {
+    const run2Snap = run2Snapshots.get(key);
+    assert(run2Snap, `Missing snapshot for ${key} after run 2`);
+    assertContentSnapshotsEqual(run2Snap, run1Snap, `run 2 idempotency ${key}`);
+  }
 }
 
-async function assertIdempotencyAfterRun2(fixture: Fixture, run1: Run1Snapshot): Promise<void> {
+// ─── Phase 4: Field-level sync ───────────────────────────────────────────────
+
+async function mutateSourceAndEditDest(fixture: Fixture): Promise<void> {
+  // Mutate TX-1 amount in A:Checking: -16000 → -20000
   await withApi(fixture.assertDataDir, async () => {
-    const alphaRecv = await getAccountTransactions(fixture, "alpha", "Recv");
-    const betaRecv = await getAccountTransactions(fixture, "beta", "Recv");
-    const gammaRecv = await getAccountTransactions(fixture, "gamma", "Recv");
-    const gammaPayAlpha = await getAccountTransactions(fixture, "gamma", "PayAlpha");
-    const gammaPayBeta = await getAccountTransactions(fixture, "gamma", "PayBeta");
-    const betaDeleteDest = await getAccountTransactions(fixture, "beta", "DeleteDest");
-
-    assertContentSnapshotsEqual(
-      normalizeAccountSnapshot(alphaRecv),
-      run1.alphaRecv,
-      "run2 idempotency alpha/Recv"
-    );
-    assertContentSnapshotsEqual(
-      normalizeAccountSnapshot(betaRecv),
-      run1.betaRecv,
-      "run2 idempotency beta/Recv"
-    );
-    assertContentSnapshotsEqual(
-      normalizeAccountSnapshot(gammaRecv),
-      run1.gammaRecv,
-      "run2 idempotency gamma/Recv"
-    );
-    assertContentSetEqual(
-      normalizeAccountSnapshot(gammaPayAlpha),
-      run1.gammaPayAlpha,
-      "run2 idempotency gamma/PayAlpha"
-    );
-    assertContentSetEqual(
-      normalizeAccountSnapshot(gammaPayBeta),
-      run1.gammaPayBeta,
-      "run2 idempotency gamma/PayBeta"
-    );
-    // beta/DeleteDest: delete step can over-delete when split recreates (keys may not match).
-    // Core flow (alpha/Recv, beta/Recv) is validated above.
-    assert(
-      visibleTxs(betaDeleteDest).length >= 1,
-      "run2 beta/DeleteDest: manual tx should be preserved"
-    );
-    getOneByMarker(betaDeleteDest, MARKERS.betaDeleteDestManual, "run2 beta/DeleteDest manual");
-  });
-}
-
-async function mutateSourceForFieldSync(fixture: Fixture): Promise<{ updatedDate: string }> {
-  return withApi(fixture.assertDataDir, async () => {
-    const alphaChecking = await getAccountTransactions(fixture, "alpha", "Checking");
-    const taggedFlat = getOneByMarker(alphaChecking, MARKERS.alphaTaggedFlat, "source update target");
-    const updatedDate = isoDate(-1);
-    await actual.updateTransaction(taggedFlat.id, { amount: -1400, date: updatedDate });
+    const aChecking = await getAccountTxs(fixture, "A", "Checking");
+    const rum = getOneByMarker(aChecking, MARKERS.aRum, "source mutation target");
+    await actual.updateTransaction(rum.id, { amount: -20000 });
     await actual.sync();
-    return { updatedDate };
   });
-}
 
-async function editBetaDestinationUserFields(fixture: Fixture): Promise<void> {
+  // Edit user notes on B:Recv (rum mirror from A)
   await withApi(fixture.assertDataDir, async () => {
-    const alphaRecv = await getAccountTransactions(fixture, "alpha", "Recv");
-    const betaRecv = await getAccountTransactions(fixture, "beta", "Recv");
-    getOneByMarker(alphaRecv, MARKERS.alphaTaggedFlat, "alpha/Recv for preserve test");
-    const betaTaggedFlat = getOneByMarker(betaRecv, MARKERS.alphaTaggedFlat, "beta/Recv preserve target (via gamma)");
-    await actual.updateTransaction(betaTaggedFlat.id, {
-      notes: PRESERVED_NOTES,
-    });
+    const bRecv = await getAccountTxs(fixture, "B", "Recv");
+    const bRecvRum = getOneByMarker(bRecv, MARKERS.aRum, "B:Recv preserve target");
+    await actual.updateTransaction(bRecvRum.id, { notes: PRESERVED_NOTES });
     await actual.sync();
   });
 }
 
-async function assertFieldLevelSyncAfterRun3(fixture: Fixture, updatedDate: string): Promise<void> {
+async function assertFieldLevelSyncAfterRun3(fixture: Fixture): Promise<void> {
   await withApi(fixture.assertDataDir, async () => {
-    const alphaRecv = await getAccountTransactions(fixture, "alpha", "Recv");
-    const betaRecv = await getAccountTransactions(fixture, "beta", "Recv");
-    const gammaRecv = await getAccountTransactions(fixture, "gamma", "Recv");
-    const alphaTaggedFlat = getOneByMarker(alphaRecv, MARKERS.alphaTaggedFlat, "alpha/Recv after source update");
-
-    assert(alphaTaggedFlat.amount === 700, "alpha/Recv tagged flat should update split amount to +700");
-    assert(alphaTaggedFlat.date === updatedDate, "alpha/Recv tagged flat should update date");
-
-    const betaTaggedFlat = getOneByMarker(betaRecv, MARKERS.alphaTaggedFlat, "beta/Recv after source update (via gamma)");
-    const gammaTaggedFlat = getOneByMarker(gammaRecv, MARKERS.alphaTaggedFlat, "gamma/Recv after source update");
-
-    assert(betaTaggedFlat.amount === 700, "beta/Recv should update amount from source via 3-hop");
-    assert(betaTaggedFlat.date === updatedDate, "beta/Recv should update date from source");
-    assert(betaTaggedFlat.notes === PRESERVED_NOTES, "beta/Recv should preserve user-edited notes");
-
-    assert(gammaTaggedFlat.amount === 700, "gamma/Recv should update amount from source");
-    assert(gammaTaggedFlat.date === updatedDate, "gamma/Recv should update date from source");
-  });
-}
-
-async function deleteCoffeeFromAlpha(fixture: Fixture): Promise<void> {
-  await withApi(fixture.assertDataDir, async () => {
-    const alphaChecking = await getAccountTransactions(fixture, "alpha", "Checking");
-    const coffee = getOneByMarker(alphaChecking, MARKERS.alphaCoffee, "delete coffee source");
-    await actual.deleteTransaction(coffee.id);
-    await actual.sync();
-  });
-}
-
-async function assertAfterDeleteRun4(fixture: Fixture): Promise<void> {
-  await withApi(fixture.assertDataDir, async () => {
-    const betaDeleteDest = await getAccountTransactions(fixture, "beta", "DeleteDest");
-    const visible = visibleTxs(betaDeleteDest);
+    // A:Recv split should update: -20000 * -0.5 = +10000
+    const aRecv = await getAccountTxs(fixture, "A", "Recv");
+    const aRecvRum = getOneByMarker(aRecv, MARKERS.aRum, "A:Recv rum after mutation");
     assert(
-      visible.length === 8,
-      "beta/DeleteDest should have 7 mirrored + 1 manual tx after deleting coffee source"
+      aRecvRum.amount === 10000,
+      `A:Recv rum should update to 10000, got ${aRecvRum.amount}`
     );
 
-    const manual = getOneByMarker(betaDeleteDest, MARKERS.betaDeleteDestManual, "manual tx must remain");
-    assert(!manual.imported_id?.startsWith("ABMirror:"), "manual tx must remain user-owned");
+    // Joint:AIndv should update: mirror of -20000
+    const jointAIndv = await getAccountTxs(fixture, "Joint", "AIndv");
+    const aIndvRum = getOneByMarker(jointAIndv, MARKERS.aRum, "Joint:AIndv rum after mutation");
+    assert(
+      aIndvRum.amount === -20000,
+      `Joint:AIndv rum should update to -20000, got ${aIndvRum.amount}`
+    );
 
-    const coffeeMatches = visible.filter((tx) => txHasMarker(tx, MARKERS.alphaCoffee));
-    assert(coffeeMatches.length === 0, "coffee mirror should be deleted from beta/DeleteDest");
+    // Joint:PayA should update: mirror of +10000
+    const jointPayA = await getAccountTxs(fixture, "Joint", "PayA");
+    const payARum = getOneByMarker(jointPayA, MARKERS.aRum, "Joint:PayA rum after mutation");
+    assert(
+      payARum.amount === 10000,
+      `Joint:PayA rum should update to 10000, got ${payARum.amount}`
+    );
 
-    getOneByMarker(betaDeleteDest, MARKERS.alphaGroceriesSub1, "post-delete keep sub1");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaGroceriesSub2, "post-delete keep sub2");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaTaggedFlat, "post-delete keep tagged flat");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaMissingSync, "post-delete keep missing-sync");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaMultiAction, "post-delete keep multi-action");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaRent, "post-delete keep rent");
-    getOneByMarker(betaDeleteDest, MARKERS.alphaExternalImported, "post-delete keep external imported");
+    // Joint:PayB should update: inverted to -10000
+    const jointPayB = await getAccountTxs(fixture, "Joint", "PayB");
+    const payBRum = getOneByMarker(jointPayB, MARKERS.aRum, "Joint:PayB rum after mutation");
+    assert(
+      payBRum.amount === -10000,
+      `Joint:PayB rum should update to -10000, got ${payBRum.amount}`
+    );
+
+    // B:Recv: amount updated, notes preserved
+    // Notes were edited to PRESERVED_NOTES (no longer contains aRum marker).
+    // Find by amount and date instead.
+    const bRecv = await getAccountTxs(fixture, "B", "Recv");
+    assertCount(bRecv, 5, "B:Recv count unchanged after run 3");
+    const bRecvRum = visibleTxs(bRecv).find(
+      (tx) => tx.amount === -10000 && tx.date === "2025-01-15"
+    );
+    assert(bRecvRum, "B:Recv should have a -10000 tx on 2025-01-15 (updated rum mirror)");
+    assert(
+      bRecvRum.notes === PRESERVED_NOTES,
+      `B:Recv rum notes should be preserved as "${PRESERVED_NOTES}", got "${bRecvRum.notes}"`
+    );
   });
 }
+
+// ─── Phase 5: Delete propagation ─────────────────────────────────────────────
+
+async function deleteJointGames(fixture: Fixture): Promise<void> {
+  await withApi(fixture.assertDataDir, async () => {
+    const jointChecking = await getAccountTxs(fixture, "Joint", "Checking");
+    const games = getOneByMarker(jointChecking, MARKERS.jointGames, "delete target TX-6");
+    await actual.deleteTransaction(games.id);
+    await actual.sync();
+  });
+}
+
+async function assertDeletePropagation(fixture: Fixture): Promise<void> {
+  await withApi(fixture.assertDataDir, async () => {
+    // Joint:Checking — TX-6 deleted, only TX-7 remains
+    const jointChecking = await getAccountTxs(fixture, "Joint", "Checking");
+    assertCount(jointChecking, 1, "Joint:Checking after delete");
+
+    // Joint:JointExpenses — TX-6 split deleted (step 3: delete:true), TX-7 remains
+    const jointExpenses = await getAccountTxs(fixture, "Joint", "JointExpenses");
+    assertCount(jointExpenses, 1, "Joint:JointExpenses after delete");
+
+    // A:Joint — BOTH entries remain! Step 14 has delete:false, stale TX-6 preserved.
+    const aJoint = await getAccountTxs(fixture, "A", "Joint");
+    assertCount(aJoint, 2, "A:Joint after delete (delete:false preserves stale entry)");
+
+    // B:Joint — TX-6 mirror deleted (step 15: delete:true), TX-7 remains
+    const bJoint = await getAccountTxs(fixture, "B", "Joint");
+    assertCount(bJoint, 1, "B:Joint after delete (delete:true removes stale entry)");
+
+    // Other accounts should be unaffected (TX-6 only flows through JointExpenses)
+    assertCount(await getAccountTxs(fixture, "A", "Recv"), 5, "A:Recv after delete");
+    assertCount(await getAccountTxs(fixture, "B", "Recv"), 5, "B:Recv after delete");
+    assertCount(await getAccountTxs(fixture, "Joint", "PayA"), 5, "Joint:PayA after delete");
+    assertCount(await getAccountTxs(fixture, "Joint", "PayB"), 5, "Joint:PayB after delete");
+    assertCount(await getAccountTxs(fixture, "Joint", "AIndv"), 2, "Joint:AIndv after delete");
+    assertCount(await getAccountTxs(fixture, "Joint", "BIndv"), 1, "Joint:BIndv after delete");
+  });
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   const fixture = await bootstrap();
 
-  console.log("Asserting starting state...");
+  console.log("Phase 1: Asserting starting state...");
   await assertStartingState(fixture);
-  const sourceBeforeRun1 = await snapshotAlphaChecking(fixture);
 
-  console.log("Running pipeline (run 1)...");
-  runMirrorBinary(fixture);
-  const run1Snapshot = await assertAfterRun1(fixture);
-  assertSnapshotsEqual(
-    await snapshotAlphaChecking(fixture),
-    sourceBeforeRun1,
-    "source integrity after run 1"
-  );
+  console.log("Phase 2: Running pipeline (run 1)...");
+  runPipeline(fixture);
+  const run1Snapshots = await assertAfterRun1(fixture);
 
-  console.log("Running pipeline (run 2, deep idempotency)...");
-  runMirrorBinary(fixture);
-  await assertIdempotencyAfterRun2(fixture, run1Snapshot);
-  assertSnapshotsEqual(
-    await snapshotAlphaChecking(fixture),
-    sourceBeforeRun1,
-    "source integrity after run 2"
-  );
+  console.log("Phase 3: Running pipeline (run 2, idempotency)...");
+  runPipeline(fixture);
+  await assertIdempotencyAfterRun2(fixture, run1Snapshots);
 
-  console.log("Preparing field-level sync test (mutate source + preserve destination fields)...");
-  const sourceEdit = await mutateSourceForFieldSync(fixture);
-  await editBetaDestinationUserFields(fixture);
-  const sourceAfterManualEdit = await snapshotAlphaChecking(fixture);
+  console.log("Phase 4: Field-level sync (mutate source + preserve notes)...");
+  await mutateSourceAndEditDest(fixture);
+  runPipeline(fixture);
+  await assertFieldLevelSyncAfterRun3(fixture);
 
-  console.log("Running pipeline (run 3, field-level sync)...");
-  runMirrorBinary(fixture);
-  await assertFieldLevelSyncAfterRun3(fixture, sourceEdit.updatedDate);
-  assertSnapshotsEqual(
-    await snapshotAlphaChecking(fixture),
-    sourceAfterManualEdit,
-    "source integrity after run 3"
-  );
+  console.log("Phase 5: Delete propagation (delete:true vs delete:false)...");
+  await deleteJointGames(fixture);
+  runPipeline(fixture);
+  await assertDeletePropagation(fixture);
 
-  console.log("Deleting coffee in source and running pipeline (run 4, delete safety)...");
-  await deleteCoffeeFromAlpha(fixture);
-  const sourceAfterCoffeeDelete = await snapshotAlphaChecking(fixture);
-  runMirrorBinary(fixture);
-  await assertAfterDeleteRun4(fixture);
-  assertSnapshotsEqual(
-    await snapshotAlphaChecking(fixture),
-    sourceAfterCoffeeDelete,
-    "source integrity after run 4"
-  );
-
-  console.log("Testing account name resolution in config...");
-  const nameConfigPath = path.join(path.dirname(fixture.configPath), ".tmp-name-config.yaml");
-  const nameConfig = {
-    server: { url: SERVER_URL },
-    dataDir: fixture.binaryDataDir,
-    budgets: {
-      alpha: { syncId: fixture.budgets.alpha.syncId, encrypted: false },
-      beta: { syncId: fixture.budgets.beta.syncId, encrypted: false },
-    },
-    lookbackDays: 3650,
-    pipeline: [
-      {
-        type: "split",
-        budget: "alpha",
-        source: {
-          accounts: ["Checking"],
-          requiredTags: ["#test", "#sync"],
-        },
-        tags: {
-          "#50/50": {
-            multiplier: -0.5,
-            destination_account: "Recv",
-          },
-        },
-      },
-    ],
-  };
-  writeFileSync(nameConfigPath, stringify(nameConfig), "utf-8");
-  const nameValidateResult = runValidate(nameConfigPath, fixture);
-  assert(nameValidateResult.exitCode === 0, "validate should pass with account names in config");
-  execSync(`node dist/cli.js run --config "${nameConfigPath}"`, {
-    cwd: fixture.rootDir,
-    stdio: "pipe",
-    env: {
-      ...process.env,
-      AB_MIRROR_KEY_GAMMA: fixture.gammaPassword,
-      AB_MIRROR_SERVER_PASSWORD: fixture.serverPassword,
-    },
-  });
-
-  console.log("Testing split source/dest overlap validation...");
-  const overlapConfigPath = path.join(path.dirname(fixture.configPath), ".tmp-overlap-config.yaml");
-  const overlapConfig = {
-    server: { url: SERVER_URL },
-    dataDir: fixture.binaryDataDir,
-    budgets: {
-      alpha: { syncId: fixture.budgets.alpha.syncId, encrypted: false },
-    },
-    lookbackDays: 3650,
-    pipeline: [
-      {
-        type: "split",
-        budget: "alpha",
-        source: { accounts: "all" },
-        tags: {
-          "#50/50": {
-            multiplier: -0.5,
-            destination_account: "Checking",
-          },
-        },
-      },
-    ],
-  };
-  writeFileSync(overlapConfigPath, stringify(overlapConfig), "utf-8");
-  const overlapResult = runValidate(overlapConfigPath, fixture);
-  assert(overlapResult.exitCode === 0, "validate should pass when split dest is in broad scope (auto-excluded)");
-
-  const overlapExplicitConfigPath = path.join(
-    path.dirname(fixture.configPath),
-    ".tmp-overlap-explicit-config.yaml"
-  );
-  const overlapExplicitConfig = {
-    server: { url: SERVER_URL },
-    dataDir: fixture.binaryDataDir,
-    budgets: {
-      alpha: { syncId: fixture.budgets.alpha.syncId, encrypted: false },
-    },
-    lookbackDays: 3650,
-    pipeline: [
-      {
-        type: "split",
-        budget: "alpha",
-        source: {
-          accounts: [fixture.budgets.alpha.accountIds.Checking, fixture.budgets.alpha.accountIds.Recv],
-        },
-        tags: {
-          "#50/50": {
-            multiplier: -0.5,
-            destination_account: fixture.budgets.alpha.accountIds.Recv,
-          },
-        },
-      },
-    ],
-  };
-  writeFileSync(overlapExplicitConfigPath, stringify(overlapExplicitConfig), "utf-8");
-  const overlapExplicitResult = runValidate(overlapExplicitConfigPath, fixture);
-  assert(
-    overlapExplicitResult.exitCode !== 0,
-    "validate should fail when split destination is in explicit source accounts"
-  );
-  assert(
-    overlapExplicitResult.stderr.includes("split destination account is in source scope"),
-    "stderr should include overlap error message"
-  );
-
-  console.log("Testing duplicate account name failure (actionable dump)...");
-  const dupConfigPath = path.join(path.dirname(fixture.configPath), ".tmp-dup-config.yaml");
-  const dupConfig = {
-    server: { url: SERVER_URL },
-    dataDir: fixture.binaryDataDir,
-    budgets: {
-      delta: { syncId: fixture.budgets.delta.syncId, encrypted: false },
-    },
-    lookbackDays: 3650,
-    pipeline: [
-      {
-        type: "split",
-        budget: "delta",
-        source: { accounts: "all", requiredTags: [] },
-        tags: {
-          "#x": {
-            multiplier: 1,
-            destination_account: fixture.budgets.delta.accountIds.Dup1,
-          },
-        },
-      },
-    ],
-  };
-  writeFileSync(dupConfigPath, stringify(dupConfig), "utf-8");
-  const dupResult = runValidate(dupConfigPath, fixture);
-  assert(dupResult.exitCode !== 0, "validate should fail when budget has duplicate account names");
-  assert(
-    dupResult.stderr.includes('Duplicate account name "Dup"'),
-    "stderr should include duplicate name message"
-  );
-  assert(
-    dupResult.stderr.includes("id:") && dupResult.stderr.includes("on-budget") && dupResult.stderr.includes("off-budget"),
-    "stderr should include actionable dump with ids and basic info"
-  );
-
-  console.log("Blackbox integration test passed.");
+  console.log("Joint-finances e2e test passed.");
 }
 
 main().catch((err: unknown) => {
-  console.error("Blackbox integration test failed:", err);
+  console.error("Joint-finances e2e test failed:", err);
   process.exit(1);
 });
-
